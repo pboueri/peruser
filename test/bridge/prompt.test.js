@@ -8,10 +8,16 @@ test('systemPrompt names the page, tools and rules', () => {
   for (const t of ['page_outline', 'inspect', 'preview_patch', 'verify', 'clear_preview', 'finish']) assert.match(s, new RegExp(t));
   assert.match(s, /protected attributes/);
   assert.match(s, /Harness: claude/);
+  assert.match(s, /JavaScript is not available/);
+  const js = systemPrompt({ url: 'https://a.test', harness: 'codex', allowJs: true });
+  assert.match(js, /Return a function that undoes/);
+  assert.match(js, /plus optional JavaScript/);
 });
 
 test('userPrompt includes history, existing patch and volatility', () => {
   assert.equal(userPrompt({ request: 'hide ads' }), 'Request: hide ads');
+  assert.match(userPrompt({ request: 'x', profile: 'PROFILE TEXT' }), /^PROFILE TEXT\n\nRequest: x$/);
+  assert.match(userPrompt({ request: 'x', existingPatch: { name: 'n', css: '', rules: [], intentionallyHidden: [] } }), /"js": ""/);
   const p = userPrompt({
     request: 'bigger',
     history: [

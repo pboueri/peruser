@@ -10,6 +10,7 @@ import { EventEmitter } from 'node:events';
 import { MSG, nextId, createRequestChannel } from '../../src/lib/protocol.js';
 import { runTool, TOOL_NAMES } from './tools.js';
 import { systemPrompt, userPrompt } from './prompt.js';
+import { profileForPrompt } from '../../src/lib/profile.js';
 
 export const VERSION = '0.1.0';
 
@@ -99,6 +100,8 @@ export class Bridge extends EventEmitter {
         return reply({ view: await this.store.saveView(frame.view) });
       case MSG.DELETE_VIEW:
         return reply({ deleted: await this.store.deleteView(frame.viewId) });
+      case MSG.SAVE_PROFILE:
+        return reply({ profile: await this.store.saveProfile(frame.profile) });
       case MSG.SET_ACTIVE_VIEW:
         return reply({ activeViews: await this.store.setActiveView(frame.origin, frame.viewId ?? null) });
       case MSG.AGENT_START:
@@ -150,6 +153,7 @@ export class Bridge extends EventEmitter {
 
   toolContext(run) {
     return {
+      allowJs: run.allowJs,
       callTab: (kind, payload) => this.callTab(run, kind, payload),
       finish: (result) => {
         run.result = result;
@@ -199,6 +203,7 @@ export class Bridge extends EventEmitter {
       prompt: frame.prompt,
       harness: harness.name,
       model: frame.model || '',
+      allowJs: !!frame.allowJs,
       abort: new AbortController(),
       events: [],
       result: null,
@@ -217,9 +222,10 @@ export class Bridge extends EventEmitter {
           env: { PERUSER_BRIDGE_URL: this.url, PERUSER_RUN_ID: run.id, PERUSER_RUN_TOKEN: run.token },
         }
       : null;
-    const system = systemPrompt({ url: run.url, harness: harness.name });
+    const system = systemPrompt({ url: run.url, harness: harness.name, allowJs: run.allowJs });
     const prompt = userPrompt({
       request: run.prompt,
+      profile: profileForPrompt(this.store.profile),
       history: frame.history || [],
       existingPatch: frame.existingPatch || null,
       volatility: frame.volatility || null,

@@ -4,6 +4,9 @@
 import { MSG, createRequestChannel } from '../lib/protocol.js';
 import * as store from '../lib/storage.js';
 import { nextView, viewName } from '../lib/views.js';
+import { hasJs } from '../lib/patch.js';
+import { jsPatchesFor } from '../lib/jspatch.js';
+import { runPatchJs, cleanupPatchJs, syncRegistrations, injectForNavigation, jsStatus } from './js-runner.js';
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
@@ -44,7 +47,7 @@ async function connectBridge() {
       bridge.hello = hello;
       bridge.connected = true;
       await store.setCatalog(hello.catalog);
-      panelBroadcast({ type: MSG.BRIDGE_STATUS, status: bridgeStatus() });
+      panelBroadcast({ type: MSG.BRIDGE_STATUS_EVENT, status: bridgeStatus() });
     } catch (e) {
       console.warn('[peruser] hello failed', e);
       ws.close();
@@ -70,7 +73,7 @@ async function connectBridge() {
     } else if (frame.type === MSG.TOOL_CALL) {
       let reply;
       try {
-        const res = await sendToTab(frame.tabId, { type: frame.kind, ...frame.payload });
+        const res = await toolCall(frame.tabId, frame.kind, frame.payload);
         reply = { id: frame.id, type: MSG.TOOL_RESULT, result: res };
       } catch (e) {
         reply = { id: frame.id, type: MSG.ERROR, error: e.message };
@@ -82,7 +85,7 @@ async function connectBridge() {
     if (bridge.ws !== ws) return;
     bridge.connected = false;
     bridge.channel.rejectAll('bridge disconnected');
-    panelBroadcast({ type: MSG.BRIDGE_STATUS, status: bridgeStatus() });
+    panelBroadcast({ type: MSG.BRIDGE_STATUS_EVENT, status: bridgeStatus() });
     const delay = Math.min(10_000, 500 * 2 ** Math.min(bridge.attempt++, 5));
     bridge.timer = setTimeout(connectBridge, delay);
   };
@@ -110,11 +113,63 @@ setInterval(() => {
 connectBridge();
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes[store.KEYS.SETTINGS]) {
+  if (area !== 'local') return;
+  if (changes[store.KEYS.SETTINGS]) {
     const before = changes[store.KEYS.SETTINGS].oldValue?.bridgePort;
     const after = changes[store.KEYS.SETTINGS].newValue?.bridgePort;
     if (before !== after) connectBridge();
   }
+  if (changes[store.KEYS.SETTINGS] || changes[store.KEYS.PATCHES] || changes[store.KEYS.ACTIVE_VIEWS] || changes[store.KEYS.VIEWS]) syncJs();
+});
+syncJs();
+
+// ---- tool calls that may involve JavaScript --------------------------------------------
+
+async function toolCall(tabId, kind, payload) {
+  const res = await sendToTab(tabId, { type: kind, ...payload });
+  if (kind === MSG.PREVIEW && hasJs(payload.patch)) {
+    const settings = await store.getSettings();
+    if (!settings.allowJs) return { ...res, js: { ok: false, error: 'JavaScript patches are disabled in the options' } };
+    await cleanupPatchJs(tabId, 'preview');
+    res.js = await runPatchJs(tabId, { id: 'preview', js: payload.patch.js });
+    if (!res.js.ok) res.problems = [...(res.problems || []), `js: ${res.js.error}`];
+  } else if (kind === MSG.PREVIEW || kind === MSG.CLEAR_PREVIEW) {
+    await cleanupPatchJs(tabId, 'preview');
+  }
+  return res;
+}
+
+/** Make the JS patches running in a tab match what should run there. */
+async function reconcileTabJs(tabId, url, { enabled = true } = {}) {
+  const [catalog, settings] = await Promise.all([store.getCatalog(), store.getSettings()]);
+  const wanted = enabled && settings.allowJs ? jsPatchesFor(catalog, url) : [];
+  const wantedIds = new Set(wanted.map((p) => p.id));
+  let ran = [];
+  try {
+    const [res] = await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: () => Object.keys((globalThis.__peruserScripts || { ran: {} }).ran) });
+    ran = res?.result || [];
+  } catch {
+    /* not injectable */
+  }
+  const results = [];
+  for (const id of ran) if (id !== 'preview' && !wantedIds.has(id)) results.push({ id, cleaned: await cleanupPatchJs(tabId, id) });
+  for (const p of wanted) results.push({ id: p.id, ...(await runPatchJs(tabId, p)) });
+  return results;
+}
+
+async function syncJs() {
+  try {
+    const [catalog, settings] = await Promise.all([store.getCatalog(), store.getSettings()]);
+    await syncRegistrations(catalog, settings);
+  } catch (e) {
+    console.warn('[peruser] user script sync failed', e);
+  }
+}
+
+chrome.webNavigation?.onDOMContentLoaded?.addListener(async (d) => {
+  if (d.frameId !== 0 || !/^(https?|file):/.test(d.url)) return;
+  const [catalog, settings] = await Promise.all([store.getCatalog(), store.getSettings()]);
+  injectForNavigation(d.tabId, d.url, catalog, settings).catch(() => {});
 });
 
 // ---- tabs ----------------------------------------------------------------------------
@@ -161,9 +216,14 @@ chrome.commands.onCommand.addListener(async (command) => {
 // ---- messages from the panel / options ----------------------------------------------------
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (!sender.url?.startsWith(chrome.runtime.getURL(''))) return false; // only our own pages talk to the worker
+  const ownPage = sender.url?.startsWith(chrome.runtime.getURL(''));
+  if (!ownPage && msg?.type !== 'js.sync') return false; // content scripts only ever ask for a JS sync
   (async () => {
     switch (msg?.type) {
+      case 'js.sync':
+        return reconcileTabJs(ownPage ? msg.tabId : sender.tab.id, msg.url, { enabled: msg.enabled !== false });
+      case 'js.status':
+        return jsStatus(await store.getSettings());
       case MSG.BRIDGE_STATUS:
         return bridgeStatus();
       case MSG.BRIDGE_REQUEST:

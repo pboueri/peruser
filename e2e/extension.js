@@ -33,6 +33,7 @@ export const test = base.extend({
     // start every test from an empty patch store
     const sites = path.join(process.env.PERUSER_E2E_ROOT, 'sites');
     for (const d of await fsp.readdir(sites)) await fsp.rm(path.join(sites, d), { recursive: true, force: true });
+    await fsp.writeFile(path.join(process.env.PERUSER_E2E_ROOT, 'profile.md'), '# My preferences\n\n## Notes\n\n');
     await new Promise((r) => setTimeout(r, 500));
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/options/options.html`);

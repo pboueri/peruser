@@ -45,6 +45,10 @@
       <button id="send" class="primary">Send</button>
       <button id="cancel" class="secondary" hidden>Stop</button>
     </div>
+    <div class="row">
+      <button id="tailor" class="secondary" title="Ask the agent to apply your saved preferences to this page">Tailor to my profile</button>
+      <label class="switch" id="js-switch" title="Let the agent write JavaScript for this request (set in Options)"><input id="allow-js" type="checkbox"> <span>JS allowed</span></label>
+    </div>
     <div id="compose-hint" class="hint"></div>
   </footer>
 
@@ -54,6 +58,7 @@
       <p class="hint" id="editor-path"></p>
       <label>patch.json<textarea id="editor-json" rows="12" spellcheck="false"></textarea></label>
       <label>style.css<textarea id="editor-css" rows="8" spellcheck="false"></textarea></label>
+      <label>script.js<textarea id="editor-js" rows="6" spellcheck="false" placeholder="(empty: no JavaScript)"></textarea></label>
       <p id="editor-error" class="error"></p>
       <div class="row">
         <button value="cancel" class="secondary">Cancel</button>

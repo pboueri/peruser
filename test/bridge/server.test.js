@@ -45,7 +45,8 @@ test('hello, catalog CRUD and pushes', async () => {
     assert.equal(ext.hello.version, '0.1.0');
     assert.ok(ext.hello.harnesses.find((h) => h.name === 'fake' && h.available));
     assert.equal(ext.hello.harnesses.find((h) => h.name === 'claude').available, false);
-    assert.deepEqual(ext.hello.catalog, { patches: {}, views: {}, activeViews: {} });
+    assert.deepEqual(ext.hello.catalog.patches, {});
+    assert.match(ext.hello.catalog.profile, /My preferences/);
     assert.match(env.logs.join('\n'), /extension connected/);
 
     const v = await ext.request({ type: MSG.SAVE_VIEW, view: { id: 'v1', origin, name: 'Focus' } });
@@ -63,6 +64,7 @@ test('hello, catalog CRUD and pushes', async () => {
     assert.equal((await ext.request({ type: MSG.DELETE_VIEW, viewId: 'v1' })).deleted, true);
     await until(() => ext.catalogs.length >= 5);
     assert.equal((await ext.request({ type: MSG.PING })).pong, true);
+    assert.deepEqual((await ext.request({ type: MSG.SAVE_PROFILE, profile: { presets: ['focus'], notes: 'n' } })).profile, { presets: ['focus'], notes: 'n' });
     await assert.rejects(ext.request({ type: 'bogus' }), /unknown message type bogus/);
     await assert.rejects(ext.request({ type: MSG.SAVE_PATCH, patch: {} }), /needs id/);
     ext.raw('not json');
@@ -124,6 +126,21 @@ test('a fake-harness run drives the tools and finishes with a verified patch', a
     const r5 = await ext.request({ type: MSG.AGENT_START, harness: 'fake', tabId: 1, url: 'https://example.test/', prompt: 'attr input name=zzz' });
     const f5 = await ext.waitFor((e) => e.runId === r5.runId && e.event.kind === 'finish');
     assert.match(f5.event.result.message, /rejected/);
+    // JavaScript is refused unless the run allows it; allowed runs bump risk to medium
+    const r7 = await ext.request({ type: MSG.AGENT_START, harness: 'fake', tabId: 1, url: 'https://example.test/', prompt: 'js document.title="j"' });
+    const f7 = await ext.waitFor((e) => e.runId === r7.runId && e.event.kind === 'finish');
+    assert.match(f7.event.result.message, /not allowed/);
+    const r8 = await ext.request({ type: MSG.AGENT_START, harness: 'fake', tabId: 1, url: 'https://example.test/', prompt: 'js document.title="j"', allowJs: true });
+    const f8 = await ext.waitFor((e) => e.runId === r8.runId && e.event.kind === 'finish');
+    assert.equal(f8.event.result.patch.js.trim(), 'document.title="j"');
+    assert.equal(f8.event.result.risk, 'medium');
+    // the profile reaches the harness through the prompt
+    await ext.request({ type: MSG.SAVE_PROFILE, profile: { presets: ['larger-text', 'hide-promos'], notes: 'gentle' } });
+    const r9 = await ext.request({ type: MSG.AGENT_START, harness: 'fake', tabId: 1, url: 'https://example.test/', prompt: 'tailor' });
+    const f9 = await ext.waitFor((e) => e.runId === r9.runId && e.event.kind === 'finish');
+    assert.match(f9.event.result.patch.css, /font-size:20px/);
+    assert.deepEqual(f9.event.result.patch.intentionallyHidden, ['.promo']);
+    assert.match(f9.event.result.patch.notes, /gentle/);
     const r6 = await ext.request({ type: MSG.AGENT_START, harness: 'fake', tabId: 1, url: 'https://example.test/', prompt: 'fail' });
     const d6 = await ext.waitFor((e) => e.runId === r6.runId && e.event.kind === 'done');
     assert.equal(d6.event.ok, false);

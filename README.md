@@ -57,6 +57,15 @@ logged in: [Claude Code](https://code.claude.com) (`claude`) or
   class names, the panel explains why patches may not hold and asks you to
   acknowledge that once per site before continuing.
 - **Scope**: whole site, this section (path prefix) or this exact page.
+- **Tailor to my profile**: one click asks the agent to apply your standing
+  preferences (see below) to the current page.
+- **JavaScript patches** (off by default): tick *JS allowed* in the panel or
+  Options and the agent may add a script for behaviour CSS cannot express
+  (shortcuts, click handling, watching for elements). You see the code before
+  saving; it is stored as `script.js`; such patches are at least medium risk.
+  A script may return a cleanup function, which runs when the patch is turned
+  off; a reload undoes it completely. Scripts that read cookies or storage or
+  send data elsewhere are refused outright.
 
 Hotkeys can be changed at `chrome://extensions/shortcuts`.
 
@@ -66,7 +75,14 @@ Hotkeys can be changed at `chrome://extensions/shortcuts`.
 ~/.peruser/sites/<site>/views.json                 views + active view
 ~/.peruser/sites/<site>/<view>/<patch>/patch.json  name, scope, rules, risk, …
 ~/.peruser/sites/<site>/<view>/<patch>/style.css   the CSS
+~/.peruser/sites/<site>/<view>/<patch>/script.js   JavaScript (only if you allowed it)
+~/.peruser/profile.md                              your preferences profile
 ```
+
+`profile.md` is a checklist plus notes ("Larger text", "Hide promotions",
+"Reduce motion", "Keyboard first", …, and anything in your own words). The
+Options page edits it, the agent reads it on every run, and *Tailor to my
+profile* applies it to a page in one click.
 
 Edit them with any editor, or point Claude Code at the folder. The bridge
 watches it and the browser updates live. Deleting a folder deletes the patch
@@ -80,13 +96,19 @@ cache; creating and editing needs the bridge.
 
 A patch is CSS plus declarative rules: `hide`, `setAttribute`,
 `removeAttribute`, `setText`, `setValue`, `addClass`, `removeClass`, `style`,
-`autofocus`, `move`. There is no JavaScript. Rules may never touch
+`autofocus`, `move`, plus optional JavaScript when you have allowed it. Rules may never touch
 **protected attributes** (`name`, `id`, `type`, `for`, `form`, `action`,
 `method`, `enctype`, `target`, `href`, `src`, `data-*`, ARIA wiring, `on*`) and
 may never move an element into or out of a form: those are the server-side
 and script-side contracts that make a page keep looking fine while silently
 breaking. Validation rejects such rules before they reach the page, and
 verification checks the outcome anyway.
+
+JavaScript patches run through `chrome.userScripts` when you have enabled
+*Allow User Scripts* for Peruser on `chrome://extensions` (persistent,
+immune to page CSP), and otherwise through `chrome.scripting` on every
+navigation (blocked by pages whose CSP forbids eval). The Options page shows
+which engine is in use.
 
 ## Harnesses
 
@@ -114,7 +136,9 @@ npm run test:e2e  # Playwright: loads the unpacked extension into Chromium,
 The end-to-end suite covers: describe → preview → verify → save → reload,
 toggling, refining, verification failure and dissuasion, protected-attribute
 rejection, high-risk acknowledgement, views and cycling, the volatile-page
-gate, live edits on disk, the source editor, scopes, and bridge-offline mode.
+gate, live edits on disk, the source editor, scopes, bridge-offline mode,
+JavaScript patches (opt-in, preview, persistence, cleanup, refusal of
+exfiltrating scripts), and the preferences profile.
 GitHub Actions runs both suites on every push (`.github/workflows/ci.yml`).
 
 Layout: `src/lib` (pure, tested logic shared by extension and bridge),

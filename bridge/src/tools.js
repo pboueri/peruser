@@ -6,7 +6,7 @@
 
 import { z } from 'zod';
 import { MSG } from '../../src/lib/protocol.js';
-import { RULE_ACTIONS, MOVE_POSITIONS, RISK_LEVELS, validatePatch, normalizeFinish } from '../../src/lib/patch.js';
+import { RULE_ACTIONS, MOVE_POSITIONS, RISK_LEVELS, validatePatch, normalizeFinish, hasJs } from '../../src/lib/patch.js';
 
 const ruleSchema = z.object({
   action: z.enum(RULE_ACTIONS),
@@ -23,6 +23,7 @@ export const patchSchema = z.object({
   name: z.string().describe('short name, 3-6 words'),
   summary: z.string().describe('one or two sentences for the user'),
   css: z.string().describe('CSS to inject; empty string if none; !important is allowed'),
+  js: z.string().optional().describe('JavaScript to run after the CSS and rules; only when the run allows JavaScript patches; empty otherwise'),
   rules: z.array(ruleSchema).describe('declarative DOM changes applied after the CSS'),
   intentionallyHidden: z.array(z.string()).describe('selectors of interactive elements the user explicitly asked to hide'),
   notes: z.string().describe('assumptions and limitations; empty string if none'),
@@ -56,6 +57,7 @@ export const TOOL_DEFS = [
     async run(input, ctx) {
       const v = validatePatch(input.patch);
       if (!v.ok) return { ok: false, errors: v.errors };
+      if (hasJs(v.patch) && !ctx.allowJs) return { ok: false, errors: ['JavaScript patches are not allowed for this run: the user has not enabled them. Use CSS and rules only, or explain what JS would be needed for.'] };
       const res = await ctx.callTab(MSG.PREVIEW, { patch: v.patch });
       return { ok: true, ...res };
     },
@@ -91,6 +93,8 @@ export const TOOL_DEFS = [
     async run(input, ctx) {
       const result = normalizeFinish(input);
       if (input.patch && !result.patch) return { ok: false, errors: result.errors, hint: 'fix the patch and call finish again' };
+      if (result.patch && hasJs(result.patch) && !ctx.allowJs) return { ok: false, errors: ['JavaScript patches are not allowed for this run'], hint: 'remove the js and call finish again' };
+      if (result.patch && hasJs(result.patch) && result.risk === 'low') result.risk = 'medium';
       ctx.finish(result);
       return { ok: true };
     },

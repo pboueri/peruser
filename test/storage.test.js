@@ -33,7 +33,7 @@ test('promise-style area and errors', async () => {
 
 test('catalog CRUD', async () => {
   const a = fakeArea();
-  assert.deepEqual(await S.getCatalog(a), { patches: {}, views: {}, activeViews: {} });
+  assert.deepEqual(await S.getCatalog(a), { patches: {}, views: {}, activeViews: {}, profile: '' });
   await S.saveView({ id: 'v1', origin, name: 'Focus', createdAt: 1 }, a);
   await S.savePatch(mk('p1', 'v1'), a);
   await S.savePatch(mk('p2', 'v1', { updatedAt: 7 }), a);
@@ -54,15 +54,16 @@ test('catalog CRUD', async () => {
   await S.setActiveView(origin, 'v1', a);
   await S.deleteView('v1', a);
   c = await S.getCatalog(a);
-  assert.deepEqual(c, { patches: {}, views: {}, activeViews: {} });
+  assert.deepEqual(c, { patches: {}, views: {}, activeViews: {}, profile: '' });
   await S.deleteView('missing', a);
 
-  await S.setCatalog({ patches: { p9: mk('p9', 'v9') }, views: { v9: { id: 'v9', origin } } }, a);
+  await S.setCatalog({ patches: { p9: mk('p9', 'v9') }, views: { v9: { id: 'v9', origin } }, profile: '# p' }, a);
   assert.equal((await S.getCatalog(a)).patches.p9.id, 'p9');
+  assert.equal((await S.getCatalog(a)).profile, '# p');
   await S.setCatalog(null, a);
-  assert.deepEqual(await S.getCatalog(a), { patches: {}, views: {}, activeViews: {} });
-  await S.set({ patches: 'junk', views: 3, activeViews: null }, a);
-  assert.deepEqual(await S.getCatalog(a), { patches: {}, views: {}, activeViews: {} });
+  assert.deepEqual(await S.getCatalog(a), { patches: {}, views: {}, activeViews: {}, profile: '' });
+  await S.set({ patches: 'junk', views: 3, activeViews: null, profile: 4 }, a);
+  assert.deepEqual(await S.getCatalog(a), { patches: {}, views: {}, activeViews: {}, profile: '' });
 });
 
 test('acknowledgements', async () => {
@@ -132,8 +133,10 @@ test('export / import / clear', async () => {
   assert.equal(await S.importAll({ ...data, patches: { ...data.patches, bad: { id: 'bad' }, worse: null }, views: { ...data.views, junk: null } }, {}, b), 1);
   assert.equal((await S.getCatalog(b)).activeViews[origin], 'v1');
   await S.savePatch(mk('p2', 'v1'), b);
-  assert.equal(await S.importAll({ format: 'peruser-export', patches: {} }, { replace: true }, b), 0);
-  assert.deepEqual(await S.getCatalog(b), { patches: {}, views: {}, activeViews: {} });
+  assert.equal(await S.importAll({ format: 'peruser-export', patches: {}, profile: '# mine' }, { replace: true }, b), 0);
+  assert.deepEqual(await S.getCatalog(b), { patches: {}, views: {}, activeViews: {}, profile: '# mine' });
+  await S.importAll({ format: 'peruser-export', patches: {}, profile: '' }, {}, b);
+  assert.equal((await S.getCatalog(b)).profile, '# mine');
   await S.savePatch(mk('p3', 'v1'), b);
   await S.clearAll(b);
   assert.deepEqual((await S.getCatalog(b)).patches, {});

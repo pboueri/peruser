@@ -171,12 +171,14 @@ test('fake harness command language', async () => {
     if (name === 'verify') return { ok: true };
     return {};
   };
-  const r = await h.run({ prompt: 'Request: text h1 => Hello\nvalue #q => x\nstyle p => color:red\nattr a title=T\nrisky\nunknown cmd', callTool, onEvent() {} });
+  const r = await h.run({ prompt: 'Request: text h1 => Hello\nvalue #q => x\nstyle p => color:red\nattr a title=T\nrisky\nunknown cmd\njs alert(1)', callTool, onEvent() {} });
   assert.equal(r.lastText, 'finished');
   const finish = calls.find((c) => c[0] === 'finish')[1];
   assert.equal(finish.risk, 'high');
   assert.equal(finish.warnings.length, 2);
   assert.deepEqual(finish.patch.rules.map((x) => x.action), ['setText', 'setValue', 'style', 'setAttribute']);
+  assert.equal(finish.patch.js, 'alert(1)\n');
+  assert.match(finish.patch.summary, /JavaScript/);
   assert.deepEqual(finish.patch.rules[3], { action: 'setAttribute', selector: 'a', name: 'title', value: 'T' });
   // no "Request:" marker, volatile page bumps risk to medium, text without value
   const r2 = await h.run({ prompt: 'text h1\nattr a title\nvalue #q\nstyle p', callTool, onEvent() {} });
@@ -192,6 +194,15 @@ test('fake harness command language', async () => {
   aborted.abort();
   await assert.rejects(h.run({ prompt: 'hide a', callTool, onEvent() {}, signal: aborted.signal }), /aborted/);
   outline.volatility = null;
+  const tail = await h.run({ prompt: '- Larger text: big\n- Prefer dark: yes\n- Hide promotions: gone\n- In their own words: soft colours\n\nRequest: tailor', callTool, onEvent() {} });
+  assert.equal(tail.lastText, 'finished');
+  const ft = calls.filter((c) => c[0] === 'finish').at(-1)[1];
+  assert.match(ft.patch.css, /font-size:20px/);
+  assert.match(ft.patch.css, /background:#111/);
+  assert.equal(ft.patch.rules[0].action, 'hide');
+  assert.match(ft.patch.notes, /soft colours/);
+  await h.run({ prompt: 'Request: tailor', callTool, onEvent() {} });
+  assert.equal(calls.at(-1)[1].message, 'Nothing to change.');
   const r3 = await h.run({ prompt: 'Request: nothing here', callTool, onEvent() {} });
   assert.equal(r3.lastText, 'finished without a patch');
   assert.equal(calls.at(-1)[1].message, 'Nothing to change.');

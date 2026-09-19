@@ -44,10 +44,15 @@ test('preview_patch validates the patch before applying', async () => {
   assert.equal(r.ok, true);
   assert.equal(r.kind, MSG.PREVIEW);
   assert.deepEqual(r.echoed.patch.intentionallyHidden, ['.x']);
+  const js = await runTool('preview_patch', { patch: { ...good, js: 'document.title="x"' } }, c);
+  assert.equal(js.ok, false);
+  assert.match(js.errors[0], /JavaScript patches are not allowed/);
+  const jsOk = await runTool('preview_patch', { patch: { ...good, js: 'document.title="x"' } }, { ...c, allowJs: true });
+  assert.equal(jsOk.ok, true);
   const bad = await runTool('preview_patch', { patch: { ...good, rules: [{ action: 'setAttribute', selector: 'a', name: 'name', value: 'x' }] } }, c);
   assert.equal(bad.ok, false);
   assert.match(bad.errors[0], /protected/);
-  assert.equal(c.calls.length, 1);
+  assert.equal(c.calls.length, 2);
   await assert.rejects(runTool('preview_patch', { patch: { ...good, rules: [{ action: 'explode', selector: 'a' }] } }, c), /invalid input/);
 });
 
@@ -66,4 +71,10 @@ test('finish normalises and records the result', async () => {
   assert.match(r.errors[0], /@import/);
   assert.equal(c.finished.length, 2);
   await assert.rejects(runTool('finish', { ...base, risk: 'extreme' }, c), /risk/);
+  const jsPatch = { name: 'n', summary: 's', css: '', js: 'x()', rules: [], intentionallyHidden: [], notes: '' };
+  assert.match((await runTool('finish', { ...base, patch: jsPatch }, c)).errors[0], /not allowed/);
+  assert.deepEqual(await runTool('finish', { ...base, patch: jsPatch }, { ...c, allowJs: true }), { ok: true });
+  assert.equal(c.finished.at(-1).risk, 'medium');
+  assert.deepEqual(await runTool('finish', { ...base, risk: 'high', patch: jsPatch }, { ...c, allowJs: true }), { ok: true });
+  assert.equal(c.finished.at(-1).risk, 'high');
 });

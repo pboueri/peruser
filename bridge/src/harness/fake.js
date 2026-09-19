@@ -14,6 +14,8 @@
 //   refuse <text>              decline this part with an alternative
 //   nopatch                    finish without a patch
 //   risky                      report risk = high
+//   js <code>                  add JavaScript (refused by the bridge unless allowed)
+//   tailor                     apply the profile presets found in the prompt as CSS
 //   fail                       throw, to exercise error handling
 
 export function createFakeHarness() {
@@ -33,13 +35,14 @@ export function createFakeHarness() {
       const outline = await callTool('page_outline', {});
       if (signal?.aborted) throw new Error('aborted');
 
-      const patch = { name: 'Fake patch', summary: '', css: '', rules: [], intentionallyHidden: [], notes: '' };
+      const patch = { name: 'Fake patch', summary: '', css: '', js: '', rules: [], intentionallyHidden: [], notes: '' };
       const declined = [];
       const warnings = [];
       let risk = 'low';
       let nopatch = false;
       for (const line of lines) {
-        const [cmd, ...rest] = line.split(' ');
+        const [rawCmd, ...rest] = line.split(' ');
+        const cmd = rawCmd.toLowerCase();
         const arg = rest.join(' ');
         const [sel, val] = arg.split(' => ');
         switch (cmd) {
@@ -49,6 +52,19 @@ export function createFakeHarness() {
             break;
           case 'css':
             patch.css += arg + '\n';
+            break;
+          case 'js':
+            patch.js += arg + '\n';
+            break;
+          case 'tailor':
+            if (/- Larger text:/.test(prompt)) patch.css += 'html{font-size:20px !important}\n';
+            if (/- Hide promotions:/.test(prompt)) {
+              patch.rules.push({ action: 'hide', selector: '.promo' });
+              patch.intentionallyHidden.push('.promo');
+            }
+            if (/- Prefer dark:/.test(prompt)) patch.css += 'body{background:#111 !important;color:#eee !important}\n';
+            if (/In their own words: (.+)/.test(prompt)) patch.notes = 'Applied your note: ' + prompt.match(/In their own words: (.+)/)[1];
+            patch.name = 'Tailored to my profile';
             break;
           case 'text':
             patch.rules.push({ action: 'setText', selector: sel, text: val ?? '' });
@@ -87,7 +103,7 @@ export function createFakeHarness() {
         if (risk === 'low') risk = 'medium';
       }
 
-      const empty = !patch.css.trim() && patch.rules.length === 0;
+      const empty = !patch.css.trim() && !patch.js.trim() && patch.rules.length === 0;
       if (nopatch || empty) {
         await callTool('finish', {
           message: declined.length ? 'I did not make changes: ' + declined.map((d) => d.reason).join(' ') : 'Nothing to change.',
@@ -99,7 +115,7 @@ export function createFakeHarness() {
         return { lastText: 'finished without a patch' };
       }
 
-      patch.summary = `${patch.rules.length} rule(s)${patch.css ? ' and custom CSS' : ''}`;
+      patch.summary = `${patch.rules.length} rule(s)${patch.css ? ' and custom CSS' : ''}${patch.js ? ' and JavaScript' : ''}`;
       onEvent({ kind: 'assistant', text: 'Previewing the change.' });
       const preview = await callTool('preview_patch', { patch });
       if (!preview.ok) {

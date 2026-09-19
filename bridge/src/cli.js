@@ -37,6 +37,7 @@ export async function startBridge({ port, root, fake, log = console.log, env = p
   const bridge = new Bridge({ store, harnesses, port, log, mcpCommand });
   await bridge.start();
   store.on('error', (e) => log(`store error: ${e.message}`));
+  store.on('watch-error', (e) => log(`watcher restarted after: ${e.message}`));
   log(`patches live in ${store.root}`);
   for (const h of harnesses.available()) log(`harness ${h.label}: ${h.available ? 'available' : `not found (${h.command} is not on PATH)`}`);
   if (store.problems.length) for (const p of store.problems) log(`warning: ${p}`);

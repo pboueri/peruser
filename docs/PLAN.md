@@ -15,7 +15,7 @@ with a hotkey, and are re-applied on every visit.
 |-------|----------|
 | Model access | Through a coding harness, not raw API calls. Claude Code via the Claude Agent SDK, using the user's existing Claude Code login. Codex via `codex exec` with the same tools exposed as an MCP server (best-effort until verified on a machine with Codex). |
 | Companion process | Required. `npx peruser-bridge` runs a WebSocket server on localhost. The extension applies cached patches without it, but creating and editing patches needs it. |
-| Patch power | CSS + declarative DOM rules only (hide, setAttribute, removeAttribute, setText, setValue, addClass, removeClass, style, autofocus, move). No arbitrary JavaScript in v1. |
+| Patch power | CSS + declarative DOM rules (hide, setAttribute, removeAttribute, setText, setValue, addClass, removeClass, style, autofocus, move). JavaScript is available as a per-user opt-in (added after the first session): scripts run once per load in their own world, may return a cleanup, are refused if they read cookies/storage or send data elsewhere, and make a patch at least medium risk. |
 | Server/client safety | Attributes the server or page scripts depend on are **protected**: rules that touch them are rejected by validation, and verification checks that every form still submits the same payload. |
 | Verification | The agent must call a `verify` tool before finishing. The report (pass/fail per check) is shown to the user and included in the agent's transcript. |
 | Guidance | The agent's final answer is structured: patch or no patch, risk level, warnings, declined requests with alternatives. High risk requires an explicit confirmation before saving. |
@@ -23,6 +23,7 @@ with a hotkey, and are re-applied on every visit.
 | Views | Named sets of patches per site. One active view per site. `Alt+Shift+V` cycles Original → view 1 → view 2 … with an on-page toast. |
 | Dynamic pages | A volatility score (framework markers, mutation rate, shadow DOM, generated class names) gates patch creation behind an explicit per-site acknowledgement. |
 | Files | Patches are files under `~/.peruser/sites/<site>/<view>/<patch>/` (`patch.json` + `style.css`). The bridge watches the folder; edits with any editor, including Claude Code itself, reach the browser live. Extension storage is a cache. |
+| Profile | A preferences profile (`~/.peruser/profile.md`: preset checklist + notes) that the agent reads on every run; the panel's *Tailor to my profile* applies it to the current page in one click. |
 | Tests | Unit tests (node:test + jsdom) with 100% coverage enforced by c8 on `src/lib` and `bridge/src`; Playwright end-to-end tests that load the unpacked extension against fixture pages with a fake harness; GitHub Actions runs both. |
 
 ## Architecture
@@ -148,8 +149,8 @@ the agent is told to prefer ids, `name`, ARIA and text-anchored selectors.
 
 ## Out of scope for v1
 
-Sync across devices, arbitrary JavaScript patches, screenshots to the model,
-Firefox/Safari ports, session-based login to claude.ai / chatgpt.com.
+Sync across devices, screenshots to the model, Firefox/Safari ports,
+session-based login to claude.ai / chatgpt.com.
 
 ## Status (end of first implementation session)
 
@@ -166,6 +167,10 @@ Built and verified in this repository:
   report, risk gating, views, patch list, source editor), options page, icons.
 - `e2e/`: Playwright suite with fixture pages and the fake harness; GitHub
   Actions workflow running unit + e2e.
+- Second session: JavaScript patches (opt-in, `src/lib/jspatch.js`,
+  `src/background/js-runner.js`, `script.js` files, userScripts with a
+  scripting fallback) and the preferences profile (`src/lib/profile.js`,
+  `profile.md`, Options editor, *Tailor to my profile*).
 
 Corrections to earlier assumptions:
 

@@ -1,6 +1,6 @@
 // Instructions given to whichever harness runs the agent.
 
-export function systemPrompt({ url, harness }) {
+export function systemPrompt({ url, harness, allowJs = false }) {
   return `You are Peruser, an assistant that re-skins web pages for one person without breaking them.
 
 You are working on the page at ${url}. You cannot see it directly; you have tools that run inside the live tab:
@@ -11,7 +11,16 @@ You are working on the page at ${url}. You cannot see it directly; you have tool
 - clear_preview: remove the preview.
 - finish: end the run with your final answer. You must call finish exactly once.
 
-A patch is CSS plus declarative rules (hide, setAttribute, removeAttribute, setText, setValue, addClass, removeClass, style, autofocus, move). There is no JavaScript. Prefer CSS; use rules only for things CSS cannot do (text, default values, moving, focus).
+A patch is CSS plus declarative rules (hide, setAttribute, removeAttribute, setText, setValue, addClass, removeClass, style, autofocus, move)${allowJs ? ', plus optional JavaScript' : '. JavaScript is not available in this run'}. Prefer CSS; use rules only for things CSS cannot do (text, default values, moving, focus).${
+    allowJs
+      ? `
+JavaScript (the js field) is a last resort for behaviour CSS and rules cannot express: keyboard shortcuts, reacting to clicks, reformatting content, watching for elements. Rules for js:
+- It runs once per page load in its own world after the CSS and rules; make it idempotent and defensive (elements may not exist yet; use a MutationObserver if needed).
+- Return a function that undoes what you did (remove listeners, observers, added nodes). Without it, only a reload undoes the patch, and you must say so in warnings.
+- Never read cookies or storage, never send data anywhere, never navigate or submit forms on the user's behalf, never change protected attributes. Keep it short and readable: the user will read it.
+- A patch with js is at least medium risk.`
+      : ''
+  }
 
 What keeps the page working:
 1. Never set or remove protected attributes: name, id, type, for, form, action, method, enctype, target, href, src, data-*, aria-controls/owns/labelledby/describedby, on*. The server and the page's scripts read them; the page will look fine and silently break. Restyle or hide instead.
@@ -28,8 +37,12 @@ Guiding the user: if part of the request would break the page or is not possible
 Talk to the user in plain, short sentences. No markdown headers. Harness: ${harness}.`;
 }
 
-export function userPrompt({ request, history = [], existingPatch = null, volatility = null, acknowledged = false }) {
+export function userPrompt({ request, history = [], existingPatch = null, volatility = null, acknowledged = false, profile = '' }) {
   const parts = [];
+  if (profile) {
+    parts.push(profile);
+    parts.push('');
+  }
   if (history.length) {
     parts.push('Earlier in this conversation:');
     for (const h of history.slice(-8)) parts.push(`${h.role === 'user' ? 'User' : 'You'}: ${h.content}`);
@@ -37,7 +50,7 @@ export function userPrompt({ request, history = [], existingPatch = null, volati
   }
   if (existingPatch) {
     parts.push('You are refining an existing patch. Its current content:');
-    parts.push(JSON.stringify({ name: existingPatch.name, css: existingPatch.css, rules: existingPatch.rules, intentionallyHidden: existingPatch.intentionallyHidden }, null, 2));
+    parts.push(JSON.stringify({ name: existingPatch.name, css: existingPatch.css, js: existingPatch.js || '', rules: existingPatch.rules, intentionallyHidden: existingPatch.intentionallyHidden }, null, 2));
     parts.push('Start from it; return the complete updated patch in finish, not a diff.');
     parts.push('');
   }

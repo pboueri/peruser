@@ -13,6 +13,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { EventEmitter } from 'node:events';
 import { slugify, siteSlug, uniqueSlug } from '../../src/lib/slug.js';
+import { parseProfile, formatProfile } from '../../src/lib/profile.js';
 
 export const DEFAULT_ROOT = path.join(os.homedir(), '.peruser');
 
@@ -24,6 +25,10 @@ folder; each patch inside it is a folder with:
 
   patch.json   name, summary, scope, rules, risk, warnings, enabled, ...
   style.css    the CSS the patch injects
+  script.js    JavaScript the patch runs (only if you allowed JS patches)
+
+profile.md next to this file holds your standing preferences (checkboxes and
+notes) that the agent reads on every run.
 
 Edit these files with any editor. The Peruser bridge watches this folder and
 pushes changes to the browser immediately. Deleting a folder deletes the
@@ -61,11 +66,12 @@ export class Store extends EventEmitter {
     super();
     this.root = root;
     this.sitesDir = path.join(root, 'sites');
-    this.catalog = { patches: {}, views: {}, activeViews: {} };
+    this.catalog = { patches: {}, views: {}, activeViews: {}, profile: '' };
     /** id -> { dir, siteDir } for patches and views */
     this.index = { patches: new Map(), views: new Map(), sites: new Map() };
     this.problems = [];
     this.watcher = null;
+    this.rootWatcher = null;
     this.reloadTimer = null;
   }
 
@@ -73,13 +79,18 @@ export class Store extends EventEmitter {
     await fsp.mkdir(this.sitesDir, { recursive: true });
     const readme = path.join(this.root, 'README.md');
     if (!fs.existsSync(readme)) await fsp.writeFile(readme, README);
+    if (!fs.existsSync(this.profilePath)) await fsp.writeFile(this.profilePath, formatProfile());
     await this.load();
     return this;
   }
 
+  get profilePath() {
+    return path.join(this.root, 'profile.md');
+  }
+
   /** Re-read everything from disk. */
   async load() {
-    const catalog = { patches: {}, views: {}, activeViews: {} };
+    const catalog = { patches: {}, views: {}, activeViews: {}, profile: await readText(this.profilePath) };
     const index = { patches: new Map(), views: new Map(), sites: new Map() };
     const problems = [];
     const sites = (await fsp.readdir(this.sitesDir, { withFileTypes: true })).filter((d) => d.isDirectory());
@@ -119,7 +130,8 @@ export class Store extends EventEmitter {
             continue;
           }
           const css = await readText(path.join(dir, 'style.css'));
-          catalog.patches[data.id] = { ...data, viewId: v.id, css };
+          const js = await readText(path.join(dir, 'script.js'));
+          catalog.patches[data.id] = { ...data, viewId: v.id, css, js };
           index.patches.set(data.id, { dir, siteDir, viewDir });
         }
       }
@@ -210,9 +222,11 @@ export class Store extends EventEmitter {
       info = { dir: path.join(viewInfo.dir, slug), siteDir: viewInfo.siteDir, viewDir: viewInfo.dir };
       await fsp.mkdir(info.dir, { recursive: true });
     }
-    const { css = '', ...rest } = patch;
+    const { css = '', js = '', ...rest } = patch;
     await this.writeJson(path.join(info.dir, 'patch.json'), { ...rest, updatedAt: Date.now() });
     await fsp.writeFile(path.join(info.dir, 'style.css'), css);
+    if (js.trim()) await fsp.writeFile(path.join(info.dir, 'script.js'), js);
+    else await fsp.rm(path.join(info.dir, 'script.js'), { force: true });
     await this.load();
     this.emit('change', this.catalog);
     return this.catalog.patches[patch.id];
@@ -227,6 +241,18 @@ export class Store extends EventEmitter {
     return true;
   }
 
+  /** The parsed preferences profile. */
+  get profile() {
+    return parseProfile(this.catalog.profile);
+  }
+
+  async saveProfile(profile) {
+    await fsp.writeFile(this.profilePath, typeof profile === 'string' ? profile : formatProfile(profile));
+    await this.load();
+    this.emit('change', this.catalog);
+    return this.profile;
+  }
+
   /** Where a patch lives, for "open in editor" links. */
   pathOf(id) {
     return this.index.patches.get(id)?.dir || this.index.views.get(id)?.dir || null;
@@ -236,7 +262,7 @@ export class Store extends EventEmitter {
 
   watch({ debounceMs = 250 } = {}) {
     if (this.watcher) return this;
-    this.watcher = fs.watch(this.sitesDir, { recursive: true }, () => {
+    const onChange = () => {
       clearTimeout(this.reloadTimer);
       this.reloadTimer = setTimeout(async () => {
         try {
@@ -247,15 +273,39 @@ export class Store extends EventEmitter {
         }
       }, debounceMs);
       this.reloadTimer.unref?.();
-    });
+    };
+    this.onWatchChange = onChange;
+    this.armWatchers();
     return this;
+  }
+
+  /** (Re)create the fs watchers. A recursive watcher dies when a watched folder is removed. */
+  armWatchers() {
+    for (const w of [this.watcher, this.rootWatcher]) w?.close();
+    const onError = (e) => {
+      this.emit('watch-error', e);
+      clearTimeout(this.rearmTimer);
+      this.rearmTimer = setTimeout(() => {
+        try {
+          this.armWatchers();
+          this.onWatchChange();
+        } catch (err) {
+          this.emit('watch-error', err);
+        }
+      }, 200);
+      this.rearmTimer.unref?.();
+    };
+    this.watcher = fs.watch(this.sitesDir, { recursive: true }, this.onWatchChange);
+    this.watcher.on('error', onError);
+    this.rootWatcher = fs.watch(this.root, (_event, file) => file === 'profile.md' && this.onWatchChange());
+    this.rootWatcher.on('error', onError);
   }
 
   close() {
     clearTimeout(this.reloadTimer);
-    if (this.watcher) {
-      this.watcher.close();
-      this.watcher = null;
-    }
+    clearTimeout(this.rearmTimer);
+    for (const w of [this.watcher, this.rootWatcher]) w?.close();
+    this.watcher = null;
+    this.rootWatcher = null;
   }
 }

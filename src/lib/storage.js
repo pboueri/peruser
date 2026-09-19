@@ -13,6 +13,7 @@ export const KEYS = {
   ACTIVE_VIEWS: 'activeViews',
   ACKS: 'acks',
   SETTINGS: 'settings',
+  PROFILE: 'profile',
 };
 
 export const DEFAULT_SETTINGS = {
@@ -20,6 +21,7 @@ export const DEFAULT_SETTINGS = {
   harness: 'claude', // 'claude' | 'codex' | 'fake'
   model: '',
   globalEnabled: true,
+  allowJs: false,
 };
 
 function area(custom) {
@@ -69,11 +71,12 @@ export async function saveSettings(partial, a) {
 // ---- catalog (patches + views + active views) ------------------------------
 
 export async function getCatalog(a) {
-  const r = await get([KEYS.PATCHES, KEYS.VIEWS, KEYS.ACTIVE_VIEWS], a);
+  const r = await get([KEYS.PATCHES, KEYS.VIEWS, KEYS.ACTIVE_VIEWS, KEYS.PROFILE], a);
   return {
     patches: r[KEYS.PATCHES] && typeof r[KEYS.PATCHES] === 'object' ? r[KEYS.PATCHES] : {},
     views: r[KEYS.VIEWS] && typeof r[KEYS.VIEWS] === 'object' ? r[KEYS.VIEWS] : {},
     activeViews: r[KEYS.ACTIVE_VIEWS] && typeof r[KEYS.ACTIVE_VIEWS] === 'object' ? r[KEYS.ACTIVE_VIEWS] : {},
+    profile: typeof r[KEYS.PROFILE] === 'string' ? r[KEYS.PROFILE] : '',
   };
 }
 
@@ -84,6 +87,7 @@ export async function setCatalog(catalog, a) {
       [KEYS.PATCHES]: catalog?.patches || {},
       [KEYS.VIEWS]: catalog?.views || {},
       [KEYS.ACTIVE_VIEWS]: catalog?.activeViews || {},
+      [KEYS.PROFILE]: catalog?.profile || '',
     },
     a,
   );
@@ -209,7 +213,7 @@ export async function exportAll(a) {
 
 export async function importAll(data, { replace = false } = {}, a) {
   if (!data || data.format !== 'peruser-export' || !data.patches) throw new Error('Not a Peruser export file');
-  const current = replace ? { patches: {}, views: {}, activeViews: {} } : await getCatalog(a);
+  const current = replace ? { patches: {}, views: {}, activeViews: {}, profile: '' } : await getCatalog(a);
   let count = 0;
   for (const [id, v] of Object.entries(data.views || {})) if (v && v.origin) current.views[id] = v;
   for (const [id, p] of Object.entries(data.patches)) {
@@ -219,10 +223,11 @@ export async function importAll(data, { replace = false } = {}, a) {
     }
   }
   Object.assign(current.activeViews, data.activeViews || {});
+  if (typeof data.profile === 'string' && data.profile) current.profile = data.profile;
   await setCatalog(current, a);
   return count;
 }
 
 export async function clearAll(a) {
-  await setCatalog({ patches: {}, views: {}, activeViews: {} }, a);
+  await setCatalog({ patches: {}, views: {}, activeViews: {}, profile: '' }, a);
 }

@@ -53,6 +53,7 @@ details.tool pre { margin: 4px 0 0; max-height: 200px; overflow: auto; font-size
 .badge.low { color: var(--ok); }
 .badge.medium { color: var(--warn); }
 .badge.high { color: var(--bad); }
+.badge.js { color: var(--accent); }
 .card ul { margin: 0; padding-left: 1.3em; }
 .card .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .patches h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }

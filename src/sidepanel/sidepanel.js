@@ -6,6 +6,8 @@ import * as store from '../lib/storage.js';
 import { makeScope, describeScope } from '../lib/scope.js';
 import { toRecord, validatePatch } from '../lib/patch.js';
 import { makeView, viewName } from '../lib/views.js';
+import { parseProfile, isEmptyProfile } from '../lib/profile.js';
+import { hasJs } from '../lib/patch.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -13,7 +15,8 @@ const el = {
   notice: $('notice'), gate: $('gate'), gateReasons: $('gate-reasons'), ack: $('ack'),
   transcript: $('transcript'), patches: $('patches'),
   prompt: $('prompt'), harness: $('harness'), scope: $('scope'), send: $('send'), cancel: $('cancel'), hint: $('compose-hint'),
-  editor: $('editor'), editorJson: $('editor-json'), editorCss: $('editor-css'), editorError: $('editor-error'), editorPath: $('editor-path'), editorSave: $('editor-save'),
+  tailor: $('tailor'), allowJs: $('allow-js'),
+  editor: $('editor'), editorJson: $('editor-json'), editorCss: $('editor-css'), editorJs: $('editor-js'), editorError: $('editor-error'), editorPath: $('editor-path'), editorSave: $('editor-save'),
 };
 
 const state = {
@@ -149,6 +152,7 @@ function renderTranscript() {
       case 'tool_result':
         if (ev.tool === 'verify') t.append(renderReport(ev.result));
         else if (ev.tool === 'preview_patch' && ev.result?.ok === false) t.append(node('div', 'msg error', 'Patch rejected: ' + ev.result.errors.join('; ')));
+        else if (ev.tool === 'preview_patch' && ev.result?.js && !ev.result.js.ok) t.append(node('div', 'msg error', 'The JavaScript failed: ' + ev.result.js.error));
         else if (ev.tool !== 'finish') {
           const det = node('details', 'tool');
           det.append(node('summary', null, `✓ ${labelTool(ev.tool)} result`));
@@ -220,7 +224,14 @@ function renderFinish(result) {
     card.append(node('div', null, 'Not done:'), ul);
   }
   if (result.patch) {
-    card.append(node('div', 'hint', `${result.patch.name} · ${result.patch.rules.length} rule(s)${result.patch.css.trim() ? ' + CSS' : ''}`));
+    card.append(node('div', 'hint', `${result.patch.name} · ${result.patch.rules.length} rule(s)${result.patch.css.trim() ? ' + CSS' : ''}${hasJs(result.patch) ? ' + JavaScript' : ''}`));
+    if (result.patch.notes) card.append(node('div', 'hint', result.patch.notes));
+    if (hasJs(result.patch)) {
+      const det = node('details', 'tool');
+      det.append(node('summary', null, 'Show the JavaScript'));
+      det.append(pre(result.patch.js));
+      card.append(det, node('div', 'hint', 'JavaScript runs on every visit. Turning the patch off runs its cleanup; a reload undoes it completely.'));
+    }
     const row = node('div', 'row');
     let ackBox = null;
     if (result.risk === 'high') {
@@ -269,6 +280,7 @@ function renderPatch(p) {
   on.title = 'Enabled';
   on.addEventListener('change', () => updatePatch(p, { enabled: on.checked }).catch(showError));
   title.append(on, node('span', 'name', p.name), node('span', `badge ${p.risk || 'low'}`, p.risk || 'low'));
+  if (hasJs(p)) title.append(node('span', 'badge js', 'JS'));
   row.append(title);
   row.append(node('div', 'meta', `${describeScope(p.scope)} · ${p.summary || ''}`));
   if (p.risk === 'high' && !p.acknowledgedRisk) {
@@ -304,6 +316,10 @@ function renderCompose() {
   for (const h of harnesses) el.harness.add(new Option(`${h.label}${h.available ? '' : ' (not found)'}`, h.name, false, h.name === current));
   if (harnesses.length && !harnesses.some((h) => h.name === el.harness.value)) el.harness.value = harnesses.find((h) => h.available)?.name || harnesses[0].name;
   const chosen = harnesses.find((h) => h.name === el.harness.value);
+  const profile = parseProfile(state.catalog.profile);
+  el.tailor.disabled = !ready || isEmptyProfile(profile);
+  el.tailor.title = isEmptyProfile(profile) ? 'Set up your preferences profile in Options first' : `Apply: ${profile.presets.join(', ')}${profile.notes ? ' + notes' : ''}`;
+  el.allowJs.checked = !!state.settings.allowJs;
   el.hint.textContent = !web ? '' : state.draft?.existing ? `Refining "${state.draft.existing.name}".` : chosen && !chosen.available ? `${chosen.label} is not installed on this machine (${chosen.command} was not found on PATH).` : state.draft?.finish?.patch ? 'Send another message to refine the preview, or save it above.' : '';
 }
 
@@ -316,8 +332,8 @@ function showError(e) {
 
 // ---- actions ---------------------------------------------------------------------------
 
-async function send() {
-  const text = el.prompt.value.trim();
+async function send(forcedText) {
+  const text = (forcedText || el.prompt.value).trim();
   if (!text) return;
   const prev = state.draft;
   const history = prev ? [...prev.history, { role: 'user', content: prev.promptText }, ...(prev.finish ? [{ role: 'assistant', content: prev.finish.message }] : [])] : [];
@@ -337,6 +353,7 @@ async function send() {
       existingPatch: existing,
       volatility: state.outline?.volatility || null,
       acknowledged: !!state.acks[state.origin]?.volatility,
+      allowJs: !!state.settings.allowJs,
     });
     state.draft.runId = runId;
     const missed = await worker({ type: 'run.events', runId });
@@ -426,9 +443,10 @@ async function deletePatch(p) {
 
 function openEditor(p) {
   state.editing = p.id;
-  const { css, ...rest } = p;
+  const { css, js, ...rest } = p;
   el.editorJson.value = JSON.stringify(rest, null, 2);
   el.editorCss.value = css || '';
+  el.editorJs.value = js || '';
   el.editorError.textContent = '';
   el.editorPath.textContent = state.paths[p.id] ? `On disk: ${state.paths[p.id]}` : `On disk under ${state.bridge.hello?.root || '~/.peruser'}/sites/`;
   el.editor.showModal();
@@ -443,7 +461,8 @@ async function saveEditor(ev) {
     el.editorError.textContent = `patch.json: ${e.message}`;
     return;
   }
-  const v = validatePatch({ ...json, css: el.editorCss.value });
+  const v = validatePatch({ ...json, css: el.editorCss.value, js: el.editorJs.value });
+  if (v.ok && hasJs(v.patch) && !state.settings.allowJs) v.errors.push('JavaScript patches are disabled in the options'), (v.ok = false);
   if (!v.ok) {
     el.editorError.textContent = v.errors.join('; ');
     return;
@@ -505,11 +524,21 @@ el.ack.addEventListener('click', async () => {
   render();
 });
 el.harness.addEventListener('change', () => store.saveSettings({ harness: el.harness.value }).then(() => renderCompose()));
+el.tailor.addEventListener('click', () => send('Tailor this page to my profile preferences. Apply every preference that makes sense here, and say which ones you skipped and why.').catch(showError));
+el.allowJs.addEventListener('change', async () => {
+  const on = el.allowJs.checked;
+  if (on && !confirm('Allow the agent to write JavaScript that runs on pages? JavaScript can do anything the page can. You will see the code before saving, and it is stored as script.js next to the patch.')) {
+    el.allowJs.checked = false;
+    return;
+  }
+  state.settings = await store.saveSettings({ allowJs: on });
+  renderCompose();
+});
 el.editorSave.addEventListener('click', (e) => saveEditor(e));
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === MSG.AGENT_EVENT) onEvent(msg.runId, msg.event);
-  else if (msg?.type === MSG.BRIDGE_STATUS) {
+  else if (msg?.type === MSG.BRIDGE_STATUS_EVENT && msg.status) {
     state.bridge = msg.status;
     render();
   } else if (msg?.type === MSG.CATALOG_UPDATED) {
@@ -522,7 +551,8 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes[store.KEYS.PATCHES] || changes[store.KEYS.VIEWS] || changes[store.KEYS.ACTIVE_VIEWS] || changes[store.KEYS.ACKS]) refreshCatalog().then(render);
+  if (changes[store.KEYS.SETTINGS]) store.getSettings().then((s) => ((state.settings = s), renderCompose()));
+  if (changes[store.KEYS.PATCHES] || changes[store.KEYS.VIEWS] || changes[store.KEYS.ACTIVE_VIEWS] || changes[store.KEYS.ACKS] || changes[store.KEYS.PROFILE]) refreshCatalog().then(render);
 });
 
 async function switchTab() {

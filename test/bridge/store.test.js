@@ -5,6 +5,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { Store, DEFAULT_ROOT } from '../../bridge/src/store.js';
 import { tmpDir, rm, until } from '../helpers/tmp.js';
+import { formatProfile } from '../../src/lib/profile.js';
 
 const origin = 'https://example.test';
 const patch = (id, viewId, extra = {}) => ({ id, viewId, name: 'Big Text', scope: { type: 'origin', origin }, css: 'p{font-size:20px}', rules: [], enabled: true, ...extra });
@@ -19,7 +20,8 @@ test('init creates the layout; views, patches and active view round-trip through
     const store = await new Store({ root }).init();
     assert.ok(fs.existsSync(path.join(root, 'README.md')));
     await new Store({ root }).init(); // idempotent
-    assert.deepEqual(store.catalog, { patches: {}, views: {}, activeViews: {} });
+    assert.deepEqual(store.catalog, { patches: {}, views: {}, activeViews: {}, profile: formatProfile() });
+    assert.deepEqual(store.profile, { presets: [], notes: '' });
 
     await assert.rejects(store.saveView({}), /needs id and origin/);
     const changes = [];
@@ -52,6 +54,18 @@ test('init creates the layout; views, patches and active view round-trip through
     assert.equal(store.pathOf('zzz'), null);
     const noCss = await store.savePatch({ ...patch('p3', 'v1'), css: undefined });
     assert.equal(noCss.css, '');
+    assert.equal(noCss.js, '');
+    const withJs = await store.savePatch({ ...patch('p3', 'v1'), js: 'document.title = "x"' });
+    assert.equal(withJs.js, 'document.title = "x"');
+    assert.equal(await fsp.readFile(path.join(store.pathOf('p3'), 'script.js'), 'utf8'), 'document.title = "x"');
+    await store.savePatch({ ...patch('p3', 'v1'), js: '  ' });
+    assert.equal(fs.existsSync(path.join(store.pathOf('p3'), 'script.js')), false);
+
+    // profile
+    const prof = await store.saveProfile({ presets: ['dark'], notes: 'hi' });
+    assert.deepEqual(prof, { presets: ['dark'], notes: 'hi' });
+    await store.saveProfile('# My preferences\n- [x] Focus mode\n## Notes\nraw');
+    assert.deepEqual(store.profile, { presets: ['focus'], notes: 'raw' });
 
     await assert.rejects(store.setActiveView(origin, 'v9'), /unknown view v9/);
     assert.deepEqual(await store.setActiveView(origin, 'v1'), { [origin]: 'v1' });
@@ -154,12 +168,36 @@ test('watch reloads on external edits', async () => {
     await fsp.writeFile(cssFile, 'p{color:red}');
     await until(() => store.catalog.patches.p1?.css === 'p{color:red}');
     assert.ok(changes.length >= 1);
+    await fsp.writeFile(store.profilePath, '- [x] Compact layout');
+    await until(() => store.profile.presets.includes('compact'));
+    await fsp.writeFile(path.join(root, 'other.txt'), 'ignored');
+    // deleting a watched folder must not crash the process; the watcher re-arms
+    const watchErrors = [];
+    store.on('watch-error', (e) => watchErrors.push(e));
+    await fsp.rm(path.dirname(cssFile), { recursive: true, force: true });
+    await until(() => !store.catalog.patches.p1);
+    store.watcher.emit('error', new Error('simulated watcher death'));
+    await until(() => watchErrors.length >= 1);
+    await new Promise((r) => setTimeout(r, 300));
+    await store.savePatch(patch('p1', 'v1'));
+    const cssFile2 = path.join(store.pathOf('p1'), 'style.css');
+    await fsp.writeFile(cssFile2, 'p{color:pink}');
+    await until(() => store.catalog.patches.p1?.css === 'p{color:pink}');
+    // a re-arm that fails is reported, not thrown
+    const origArm = store.armWatchers;
+    store.armWatchers = () => {
+      throw new Error('cannot arm');
+    };
+    store.rootWatcher.emit('error', new Error('again'));
+    await until(() => watchErrors.some((e) => e.message === 'cannot arm'));
+    store.armWatchers = origArm;
+
     const errors = [];
     store.on('error', (e) => errors.push(e));
     store.load = async () => {
       throw new Error('boom');
     };
-    await fsp.writeFile(cssFile, 'p{color:blue}');
+    await fsp.writeFile(cssFile2, 'p{color:blue}');
     await until(() => errors.length === 1);
     assert.equal(errors[0].message, 'boom');
     store.close();

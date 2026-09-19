@@ -3,12 +3,15 @@
   "name": "Peruser",
   "version": "0.1.0",
   "description": "Describe how you want a page to look or behave; Peruser turns it into a remembered, reversible patch that keeps the page working.",
-  "minimum_chrome_version": "116",
+  "minimum_chrome_version": "120",
   "permissions": [
     "storage",
     "sidePanel",
     "activeTab",
-    "alarms"
+    "alarms",
+    "scripting",
+    "userScripts",
+    "webNavigation"
   ],
   "host_permissions": [
     "<all_urls>"

@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  jsProblems,
+  hasJs,
   validatePatch,
   cssProblems,
   isProtectedAttribute,
@@ -19,6 +21,23 @@ test('cssProblems', () => {
   assert.match(cssProblems('a{background:url(https://evil.test/x.png)}')[0], /external url/);
   assert.deepEqual(cssProblems('a{background:url("data:image/png;base64,AAAA")} b{fill:url(#grad)}'), []);
   assert.match(cssProblems('x'.repeat(60_001))[0], /longer/);
+});
+
+test('jsProblems and hasJs', () => {
+  assert.deepEqual(jsProblems('document.title = "x"'), []);
+  assert.deepEqual(jsProblems(1), ['js must be a string']);
+  assert.match(jsProblems('x'.repeat(30_001))[0], /longer/);
+  assert.match(jsProblems('document.cookie')[0], /cookies/);
+  assert.match(jsProblems('fetch("https://evil.test")')[0], /other hosts/);
+  assert.match(jsProblems('new WebSocket("wss://x")')[0], /other hosts/);
+  assert.equal(hasJs({ js: ' ' }), false);
+  assert.equal(hasJs({ js: 'x' }), true);
+  assert.equal(hasJs(null), false);
+  const v = validatePatch({ css: '', rules: [], js: 'document.title = "t"' });
+  assert.equal(v.ok, true);
+  assert.equal(v.patch.js, 'document.title = "t"');
+  assert.match(validatePatch({ css: '', rules: [], js: 'document.cookie' }).errors.join(), /cookies/);
+  assert.equal(toRecord(v.patch, {}).js, 'document.title = "t"');
 });
 
 test('isProtectedAttribute', () => {
@@ -60,6 +79,7 @@ test('validatePatch rejects bad input', () => {
   assert.equal(validatePatch('x').ok, false);
   const errs = (raw) => validatePatch(raw).errors.join('\n');
   assert.match(errs({ css: '', rules: [] }), /changes nothing/);
+  assert.equal(validatePatch({ css: 'a{}', rules: [] }).patch.js, '');
   assert.match(errs({ css: 'a{}', rules: ['x'] }), /rule 0 is not an object/);
   assert.match(errs({ css: 'a{}', rules: [{ action: 'nope', selector: 'a' }] }), /unknown action/);
   assert.match(errs({ css: 'a{}', rules: [{ action: 'hide', selector: ' ' }] }), /missing selector/);

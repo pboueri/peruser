@@ -5,6 +5,7 @@
 //   id, name, summary, notes, viewId,
 //   scope: { type, origin, path },
 //   css: string,
+//   js: string,            // optional; only when the user allowed JavaScript patches
 //   rules: [ { action, selector, name?, value?, text?, className?, target?, position? } ],
 //   intentionallyHidden: [selector],
 //   risk: 'low' | 'medium' | 'high', warnings: [string],
@@ -59,6 +60,7 @@ export function isProtectedAttribute(name) {
 }
 
 const MAX_CSS_CHARS = 60_000;
+const MAX_JS_CHARS = 30_000;
 const MAX_RULES = 80;
 
 const nullable = (schema) => ({ anyOf: [schema, { type: 'null' }] });
@@ -67,11 +69,15 @@ const nullable = (schema) => ({ anyOf: [schema, { type: 'null' }] });
 export const PATCH_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['name', 'summary', 'css', 'rules', 'intentionallyHidden', 'notes'],
+  required: ['name', 'summary', 'css', 'js', 'rules', 'intentionallyHidden', 'notes'],
   properties: {
     name: { type: 'string', description: 'Short name for the patch (3-6 words).' },
     summary: { type: 'string', description: 'One or two sentences telling the user what the patch changes.' },
     css: { type: 'string', description: 'CSS to inject. Empty string if none. May use !important.' },
+    js: {
+      type: 'string',
+      description: 'JavaScript to run on the page after the CSS and rules, only when the user allowed JavaScript patches. Empty string otherwise. Must be idempotent; may return a cleanup function.',
+    },
     rules: {
       type: 'array',
       description: 'Declarative DOM changes, applied in order after the CSS.',
@@ -145,6 +151,24 @@ export function cssProblems(css) {
 
 const str = (v) => (typeof v === 'string' ? v : v == null ? '' : String(v));
 
+/** Problems with a JavaScript snippet we refuse to run regardless of the opt-in. */
+export function jsProblems(js) {
+  const problems = [];
+  if (typeof js !== 'string') return ['js must be a string'];
+  if (js.length > MAX_JS_CHARS) problems.push(`js is longer than ${MAX_JS_CHARS} characters`);
+  if (/\bimportScripts\s*\(|\bdocument\.cookie\b|\blocalStorage\.(getItem|key)\b|\bindexedDB\b/.test(js)) {
+    problems.push('js must not read cookies, storage or import remote scripts');
+  }
+  if (/\bfetch\s*\(\s*['"`]https?:|XMLHttpRequest|\bnavigator\.sendBeacon\b|\bWebSocket\s*\(/.test(js)) {
+    problems.push('js must not send data to other hosts');
+  }
+  return problems;
+}
+
+export function hasJs(patch) {
+  return typeof patch?.js === 'string' && patch.js.trim().length > 0;
+}
+
 /**
  * Normalise and validate a raw patch object (usually from the agent).
  * Returns { ok, patch, errors }.
@@ -155,6 +179,8 @@ export function validatePatch(raw) {
 
   const css = str(raw.css);
   errors.push(...cssProblems(css));
+  const js = str(raw.js);
+  errors.push(...jsProblems(js));
 
   const rules = [];
   const rawRules = Array.isArray(raw.rules) ? raw.rules : [];
@@ -227,10 +253,11 @@ export function validatePatch(raw) {
     summary: str(raw.summary).trim().slice(0, 600),
     notes: str(raw.notes).trim().slice(0, 1000),
     css,
+    js,
     rules,
     intentionallyHidden,
   };
-  if (!patch.css.trim() && patch.rules.length === 0) errors.push('patch changes nothing (no css and no rules)');
+  if (!patch.css.trim() && !patch.js.trim() && patch.rules.length === 0) errors.push('patch changes nothing (no css, no js and no rules)');
   return { ok: errors.length === 0, patch, errors };
 }
 
@@ -271,6 +298,7 @@ export function toRecord(validated, { id, scope, viewId, risk = 'low', warnings 
     viewId: viewId ?? existing?.viewId ?? null,
     scope: scope || existing?.scope,
     css: validated.css,
+    js: validated.js || '',
     rules: validated.rules,
     intentionallyHidden: validated.intentionallyHidden,
     risk,

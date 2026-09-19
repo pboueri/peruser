@@ -19,9 +19,15 @@ async function refresh() {
     const [catalog, settings] = await Promise.all([getCatalog(), getSettings()]);
     const list = settings.globalEnabled ? selectPatches(catalog, location.href) : [];
     rt.setPatches(list);
+    syncJs();
   } catch (e) {
     console.warn('[peruser] refresh failed', e);
   }
+}
+
+/** Ask the worker to run / clean up JavaScript patches for this page. */
+function syncJs() {
+  chrome.runtime.sendMessage({ type: 'js.sync', url: location.href, enabled: rt.enabled }).catch(() => {});
 }
 
 // ---- toasts -----------------------------------------------------------------
@@ -58,7 +64,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return false;
     }
     const result = rt.handle(msg);
-    if (msg.type === MSG.TOGGLE) toast(result.enabled ? 'Peruser: patches on' : 'Peruser: patches off (original page)');
+    if (msg.type === MSG.TOGGLE) {
+      toast(result.enabled ? 'Peruser: patches on' : 'Peruser: patches off (original page)');
+      syncJs();
+    }
     sendResponse({ ok: true, result });
   } catch (e) {
     sendResponse({ ok: false, error: e.message });
