@@ -29,7 +29,7 @@ export function makeScope(type, url) {
   if (!SCOPE_TYPES.includes(type)) throw new Error(`Unknown scope type: ${type}`);
   const scope = { type, origin: u.origin };
   if (type === 'prefix') scope.path = normalizePath(u.pathname);
-  if (type === 'exact') scope.path = normalizePath(u.pathname) + (u.search || '');
+  if (type === 'exact') scope.path = normalizePath(u.pathname) + u.search;
   return scope;
 }
 
@@ -46,7 +46,7 @@ export function scopeMatches(scope, url) {
       return want === '/' || have === want || have.startsWith(want + '/');
     }
     case 'exact': {
-      const have = normalizePath(u.pathname) + (u.search || '');
+      const have = normalizePath(u.pathname) + u.search;
       return have === scope.path;
     }
     default:

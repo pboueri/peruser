@@ -1,0 +1,14 @@
+{
+  "name": "peruser-bridge",
+  "version": "0.1.0",
+  "description": "Local companion for the Peruser Chrome extension: stores patches as files and drives Claude Code or Codex against the live page.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": { "peruser-bridge": "bin/peruser-bridge.js" },
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.0"
+  }
+}

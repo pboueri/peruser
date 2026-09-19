@@ -1,0 +1,11 @@
+{
+  "all": true,
+  "include": ["src/lib/**/*.js", "bridge/src/**/*.js"],
+  "exclude": ["**/node_modules/**"],
+  "reporter": ["text", "lcov"],
+  "check-coverage": true,
+  "lines": 100,
+  "functions": 100,
+  "branches": 100,
+  "statements": 100
+}

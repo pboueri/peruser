@@ -1,117 +1,152 @@
-# Peruser — Initial Plan
+# Peruser — Plan
 
-Peruser is a Chrome (Manifest V3) extension that lets you re-skin any web page
-for yourself. You describe a change in plain language in a side panel, an LLM
-turns it into a **patch** (CSS plus a small set of declarative DOM rules), the
-extension previews the patch on the live page, checks that the page still
-works, and remembers the patch for that site so it is re-applied on every visit.
+Peruser is a Chrome (Manifest V3) extension plus a small local companion
+process (the **bridge**). You open a side panel on any page and describe how
+you want the page to look or behave. A coding agent (Claude Code first, Codex
+as a second adapter) works against the live page through a set of browser
+tools, produces a **patch** (CSS plus a fixed vocabulary of reversible DOM
+rules), verifies that the page still works, and explains the risks. Saved
+patches live as plain files on disk, grouped into **views** that you can cycle
+with a hotkey, and are re-applied on every visit.
 
-## Clarifying questions (and the defaults chosen for v1)
+## Decisions (confirmed with the user)
 
-The user asked to be consulted before building. This session runs unattended,
-so each question below is answered with a default that is easy to change later.
-
-| # | Question | Default chosen for v1 |
-|---|----------|-----------------------|
-| 1 | **How does the extension authenticate with Claude / ChatGPT?** "Log into Claude or ChatGPT" could mean (a) reuse the claude.ai / chatgpt.com web session, or (b) use an API key. Option (a) relies on undocumented private endpoints and breaks whenever the site changes; it also runs against those services' terms of use. | **(b) API keys**, entered once in the Options page and stored in `chrome.storage.local`. Both Anthropic (Claude) and OpenAI (ChatGPT models) are supported through a small provider adapter, and a third "OpenAI-compatible" endpoint option covers local models. |
-| 2 | **What is the scope of a remembered patch?** Whole site, a path prefix, or one exact URL? | The user picks per patch in the side panel: **whole site (origin)** is the default, with "pages under this path" and "this exact page" as alternatives. Multiple patches can stack on one page. |
-| 3 | **How much power should a patch have?** Pure CSS is safest but cannot prefill form fields or change text. Arbitrary JavaScript is the most powerful but the hardest to keep safe. | **CSS + a fixed vocabulary of declarative DOM rules** (hide, set attribute, set text, set form value, add class, inline style, autofocus, move element). No arbitrary JS. This is enough for form-field customisation and UX changes, and it means every operation can be undone and health-checked. |
-| 4 | **What does "intelligently ensure the page still works" mean concretely?** | Three layers (see *Functional safety* below): prompt rules for the model, an automatic before/after **health check** of interactive elements on the page, and an **auto-repair** round that feeds any breakage back to the model. Plus a per-page kill switch. |
-| 5 | **Where do patches live?** Local only, or synced across Chrome profiles? | **Local** (`chrome.storage.local`, no size pressure) with **JSON export / import** from the Options page. Sync can be added later; `storage.sync` has a 100 KB cap that a few CSS patches would exhaust. |
-| 6 | **Build tooling?** TypeScript + bundler, or plain files? | **Plain ES-module JavaScript, no build step.** The repo can be loaded as an unpacked extension directly. Pure logic lives in `src/lib` and is unit-tested with `node --test` + jsdom. |
-| 7 | **Which model by default?** | Anthropic `claude-opus-5` (Claude), OpenAI `gpt-5` (ChatGPT). Both can be changed in Options. |
-| 8 | **Should the model see the whole page?** Sending full HTML is expensive and may leak personal data. | The model receives a **compact page outline**: title, URL, landmarks, forms and fields (name/type/label/placeholder, never values), buttons, headings, a depth-limited tag tree with ids/classes, and the current computed theme (fonts, key colours). Input values and text longer than a short excerpt are never sent. |
+| Topic | Decision |
+|-------|----------|
+| Model access | Through a coding harness, not raw API calls. Claude Code via the Claude Agent SDK, using the user's existing Claude Code login. Codex via `codex exec` with the same tools exposed as an MCP server (best-effort until verified on a machine with Codex). |
+| Companion process | Required. `npx peruser-bridge` runs a WebSocket server on localhost. The extension applies cached patches without it, but creating and editing patches needs it. |
+| Patch power | CSS + declarative DOM rules only (hide, setAttribute, removeAttribute, setText, setValue, addClass, removeClass, style, autofocus, move). No arbitrary JavaScript in v1. |
+| Server/client safety | Attributes the server or page scripts depend on are **protected**: rules that touch them are rejected by validation, and verification checks that every form still submits the same payload. |
+| Verification | The agent must call a `verify` tool before finishing. The report (pass/fail per check) is shown to the user and included in the agent's transcript. |
+| Guidance | The agent's final answer is structured: patch or no patch, risk level, warnings, declined requests with alternatives. High risk requires an explicit confirmation before saving. |
+| Unpatch | `Alt+Shift+P` toggles every patch on the current tab; the panel has the same switch. |
+| Views | Named sets of patches per site. One active view per site. `Alt+Shift+V` cycles Original → view 1 → view 2 … with an on-page toast. |
+| Dynamic pages | A volatility score (framework markers, mutation rate, shadow DOM, generated class names) gates patch creation behind an explicit per-site acknowledgement. |
+| Files | Patches are files under `~/.peruser/sites/<site>/<view>/<patch>/` (`patch.json` + `style.css`). The bridge watches the folder; edits with any editor, including Claude Code itself, reach the browser live. Extension storage is a cache. |
+| Tests | Unit tests (node:test + jsdom) with 100% coverage enforced by c8 on `src/lib` and `bridge/src`; Playwright end-to-end tests that load the unpacked extension against fixture pages with a fake harness; GitHub Actions runs both. |
 
 ## Architecture
 
 ```
-manifest.json                MV3: side panel, content script, service worker
-src/background/service-worker.js
-    - opens the side panel on toolbar click
-    - routes messages between side panel and content script
-    - calls the LLM provider (fetch from the worker avoids page CSP/CORS)
-src/content/loader.js        classic script at document_start: applies stored
-                             CSS immediately (minimises flash), then imports
-                             the ES-module runtime
-src/content/runtime.js       ES module: snapshot, preview, apply, undo,
-                             health check, SPA navigation + MutationObserver
-src/lib/scope.js             URL scope matching (origin / prefix / exact)
-src/lib/patch.js             patch schema, validation, CSS sanitising
-src/lib/snapshot.js          page outline builder (pure DOM → JSON)
-src/lib/patcher.js           applies / removes CSS + DOM rules (pure DOM)
-src/lib/health.js            interactive-element health check
-src/lib/prompt.js            system prompt, schema, response parsing
-src/lib/providers.js         Anthropic / OpenAI / OpenAI-compatible adapters
-src/lib/storage.js           patch + settings CRUD over chrome.storage.local
-src/sidepanel/*              the side panel UI ("describe → preview → save")
-src/options/*                provider, API key, model, export / import
-test/*.test.js               node --test + jsdom unit tests for src/lib
+extension (this repo root, load unpacked)
+  manifest.json
+  src/background/service-worker.js   side panel wiring, hotkeys, bridge client,
+                                     message routing, storage cache
+  src/content/loader.js              document_start: imports runtime.js
+  src/content/runtime.js             applies patches, answers tool requests
+                                     (outline, inspect, preview, verify),
+                                     SPA + MutationObserver resilience, toasts
+  src/sidepanel/                     chat with the agent, live tool log,
+                                     verification report, views, patch list,
+                                     source editor
+  src/options/                       bridge port, harness choice, model,
+                                     export / import, per-site acknowledgements
+  src/lib/                           pure, unit-tested logic:
+    scope.js      URL scopes (origin / prefix / exact)
+    patch.js      schema, validation, protected attributes, CSS sanitising
+    snapshot.js   page outline + volatility + server-bound annotations
+    patcher.js    apply / undo CSS and DOM rules
+    verify.js     interactive-element health, form payload invariance,
+                  selector coverage, CSS parse, occlusion
+    views.js      view model helpers (cycle, active view, grouping)
+    storage.js    cache CRUD over chrome.storage.local
+    protocol.js   message types shared by extension and bridge
+    slug.js       stable file/folder names
+
+bridge (bridge/, Node 22, ESM)
+  src/server.js        WebSocket server; one extension connection, many tabs
+  src/store.js         patch files on disk + watcher + catalog
+  src/tools.js         browser tool definitions (proxied to the tab)
+  src/harness/
+    claude-code.js     Claude Agent SDK adapter (in-process MCP tools)
+    codex.js           Codex CLI adapter (`codex exec` + stdio MCP server)
+    fake.js            canned responses for tests and demos
+  src/mcp-stdio.js     stdio MCP server that forwards tool calls to the bridge
+  bin/peruser-bridge.js
 ```
+
+### Message flow (creating a patch)
+
+1. Panel → worker: `agent.start { tabId, prompt, viewId, patchId? }`.
+2. Worker → bridge (WebSocket): same message plus the tab's URL.
+3. Bridge starts a harness run. The harness has these tools, each proxied
+   worker → content script and back:
+   - `page_outline()` – title, URL, landmarks, forms with fields (never
+     values), buttons, headings, tag tree, theme, volatility, protected
+     attributes.
+   - `inspect(selector)` – match count, outer HTML excerpt (values stripped),
+     computed style highlights, nearest form, event-ish attributes.
+   - `preview_patch(patch)` – validates, applies as a preview, returns
+     selector match counts and validation errors.
+   - `verify()` – runs the verification suite against the current preview.
+   - `clear_preview()`.
+   - `finish({ patch | null, risk, warnings, declined, message })`.
+4. Every tool call and result streams to the panel as a transcript line.
+5. On `finish`, the panel shows the summary, the verification report, and
+   the risk. Save writes the files through the bridge; the bridge updates the
+   catalog; the worker caches it; the runtime applies it for real.
 
 ### Data model
 
 ```js
 Patch = {
-  id, name, summary,
-  scope: { type: 'origin' | 'prefix' | 'exact', origin, path },
-  css: string,
-  rules: [ { action, selector, ...args } ],
-  intentionallyHidden: [selector],   // what the user asked to hide
-  enabled: boolean,
-  history: [ { role, content } ],    // the conversation that produced it
+  id, name, summary, notes,
+  viewId,                              // which view it belongs to
+  scope: { type: 'origin'|'prefix'|'exact', origin, path },
+  css, rules, intentionallyHidden,
+  risk: 'low'|'medium'|'high', warnings: [string],
+  enabled, acknowledgedRisk: boolean,
+  history: [{ role, content }],
   createdAt, updatedAt
 }
+View = { id, origin, name, createdAt }
+ActiveViews = { [origin]: viewId | null }   // null = Original
+Acknowledgements = { [origin]: { volatility: true } }
 ```
 
-Rule actions: `hide`, `setAttribute`, `removeAttribute`, `setText`,
-`setValue` (uses the native value setter and dispatches `input`/`change` so
-React/Vue notice), `addClass`, `removeClass`, `style`, `autofocus`, `move`
-(`before`/`after`/`prepend`/`append` a target).
+On disk: `~/.peruser/sites/<site-slug>/<view-slug>/<patch-slug>/patch.json`
+(everything but `css`) and `style.css`. `views.json` in each site folder
+holds view metadata and the active view.
 
-### Request flow
+### Protected attributes (server / client contract)
 
-1. Side panel sends `GENERATE {prompt, scope, patchId?}` to the worker.
-2. Worker asks the tab's content script for a `SNAPSHOT`.
-3. Worker builds the conversation (system prompt + snapshot + prior turns for
-   this patch + user prompt) and calls the provider, requesting JSON.
-4. Worker validates the patch, sends `PREVIEW {patch}` to the content script.
-5. Content script snapshots interactive elements, applies the patch, re-runs
-   the health check, and returns a report.
-6. Panel shows summary + report. **Save** persists it; **Discard** reverts;
-   **Fix it** sends the report back to the model for a repair round;
-   further messages refine the same patch.
+Rules may never `setAttribute` / `removeAttribute` on: `name`, `id`, `type`,
+`for`, `form`, `action`, `method`, `enctype`, `value` of hidden inputs,
+`data-*`, `aria-controls`, `aria-owns`, `aria-labelledby`, `aria-describedby`,
+`href` (except to `#`-fragment-free same value), `src`, `on*`. `move` may not
+take an element out of, or into, a `<form>`. `setValue` is allowed only on
+visible text-like controls and is reported in verification as an intended
+payload change.
 
-### Functional safety
+### Verification suite (runs in the page)
 
-* **Prompt rules**: prefer CSS; never remove or `pointer-events:none` an
-  interactive element unless asked; keep selectors specific; no `@import`,
-  no remote `url()`; list everything intentionally hidden.
-* **Sanitising**: CSS is parsed with `CSSStyleSheet.replaceSync`; `@import`
-  and remote `url()` are rejected. Rules only come from the fixed vocabulary.
-* **Health check**: before applying, record every interactive element
-  (links, buttons, inputs, selects, textareas, ARIA widgets) that is visible
-  and focusable. After applying, re-check. Any element that became invisible,
-  zero-size, non-interactive or covered, and that is not matched by an
-  `intentionallyHidden` selector, is reported as a regression.
-* **Auto-repair**: the report is sent back to the model, which returns a
-  revised patch. Two rounds max.
-* **Kill switch**: `Alt+Shift+P` toggles all patches on the current tab;
-  a per-site enable toggle lives in the panel.
-* **SPA resilience**: `MutationObserver` re-applies DOM rules (debounced),
-  and `pushState`/`popstate` changes re-evaluate the active patch set.
+| Check | Fails when |
+|-------|------------|
+| interactive | a link, button, field or ARIA widget that was visible and focusable before the patch is now missing, invisible, zero-size, `pointer-events: none`, disabled, or covered — unless matched by `intentionallyHidden` |
+| forms | any form's `FormData` differs from before, except fields changed by an explicit `setValue` |
+| css | the CSS does not parse (`CSSStyleSheet.replaceSync`) |
+| selectors | a rule selector matches nothing |
+| protected | a rule touches a protected attribute (belt and braces; validation already rejects it) |
+| layout | the document became horizontally scrollable when it was not |
+
+### Volatility score
+
+Signals: framework markers (`#__next`, `[data-reactroot]`, `ng-version`,
+`data-v-*`, `svelte-*`), mutation count over a 2 s window, shadow roots,
+proportion of hashed class names, canvas/iframe-dominant content. Score ≥ 0.6
+means "volatile": the panel shows why and requires acknowledgement per site;
+the agent is told to prefer ids, `name`, ARIA and text-anchored selectors.
 
 ## Milestones
 
-1. Scaffold: manifest, worker, side panel opens, options page stores a key.
-2. Storage + scope matching + patch application on load (no LLM yet).
-3. Snapshot + prompt + provider call → preview → save.
-4. Health check + auto-repair + kill switch.
-5. Tests for `src/lib`, README, load-unpacked instructions.
+1. Library modules with unit tests at 100% coverage.
+2. Bridge: store, watcher, WebSocket protocol, fake harness, Claude Code
+   adapter, Codex adapter.
+3. Extension: runtime, worker, side panel, options, hotkeys, toasts, views.
+4. Fixture site + Playwright end-to-end tests + GitHub Actions workflow.
+5. README with install, run, and file-editing instructions.
 
-## Out of scope for v1 (follow-ups)
+## Out of scope for v1
 
-* Sync across devices; sharing patches with others.
-* Session-based login to claude.ai / chatgpt.com.
-* Arbitrary JavaScript patches.
-* Screenshots sent to the model (would help "make this look like…").
-* Firefox / Safari ports.
+Sync across devices, arbitrary JavaScript patches, screenshots to the model,
+Firefox/Safari ports, session-based login to claude.ai / chatgpt.com.
