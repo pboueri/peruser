@@ -150,3 +150,37 @@ the agent is told to prefer ids, `name`, ARIA and text-anchored selectors.
 
 Sync across devices, arbitrary JavaScript patches, screenshots to the model,
 Firefox/Safari ports, session-based login to claude.ai / chatgpt.com.
+
+## Status (end of first implementation session)
+
+Built and verified in this repository:
+
+- `src/lib`: scope, patch validation with protected attributes, snapshot
+  (outline, inspect, volatility), patcher (apply/undo/reapply), verification
+  suite, views, storage cache, protocol, runtime core. 100% coverage.
+- `bridge/`: file store with watcher, WebSocket server, browser tools, prompts,
+  Claude Code and Codex adapters (spawn the local CLI with an MCP stdio tool
+  server), fake harness, CLI. 100% coverage.
+- Extension: content runtime (toasts, SPA and re-render resilience), service
+  worker (bridge client, hotkeys, routing), side panel (transcript, verification
+  report, risk gating, views, patch list, source editor), options page, icons.
+- `e2e/`: Playwright suite with fixture pages and the fake harness; GitHub
+  Actions workflow running unit + e2e.
+
+Corrections to earlier assumptions:
+
+- The Claude Agent SDK requires an API key and does not reuse the Claude Code
+  subscription login. To keep "use the harness you already have", both
+  adapters spawn the locally installed CLI (`claude -p`, `codex exec`) and
+  attach Peruser's tools as an MCP server; auth is whatever each CLI is
+  configured with. Users should check the terms of the CLI they use.
+
+Not verified here (no CLI or model access in this environment):
+
+- Real runs through `claude` and `codex`. The argv for both is built from
+  their documented flags and unit-tested, but has not been executed against
+  the real binaries. Codex is marked experimental; its flags are overridable
+  with `PERUSER_CODEX_ARGS`.
+- The Chrome side panel as a docked panel (tests open it as a tab with
+  `?tabId=`); the hotkeys (Chrome commands cannot be triggered from
+  Playwright; the same code paths run from the panel buttons).

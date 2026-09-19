@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Sign up · Fixture</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; }
+  header { background: #123; color: #fff; padding: 12px 20px; display: flex; gap: 16px; align-items: center; }
+  .promo { background: #ffe58a; padding: 10px 20px; }
+  main { padding: 20px; max-width: 520px; }
+  label { display: block; margin: 10px 0 4px; }
+  input, select, textarea { padding: 6px; width: 100%; box-sizing: border-box; }
+  button { padding: 8px 14px; margin-top: 12px; }
+  footer { padding: 20px; color: #666; }
+</style></head>
+<body>
+  <header><strong>Fixture Co</strong><nav><a href="/form.html">Sign up</a> <a href="/spa.html">App</a> <a href="/about.html">About</a></nav></header>
+  <div class="promo" id="promo">Limited offer! <a href="/deal">See the deal</a></div>
+  <main>
+    <h1>Create your account</h1>
+    <form id="signup" method="post" action="/submit">
+      <input type="hidden" name="csrf" value="token-123">
+      <label for="email">Email</label><input id="email" name="email" type="email" required>
+      <label for="name">Full name</label><input id="name" name="name" type="text" placeholder="Jane Doe">
+      <label for="plan">Plan</label>
+      <select id="plan" name="plan"><option value="free">Free</option><option value="pro">Pro</option></select>
+      <label><input type="checkbox" name="newsletter" value="yes"> Send me the newsletter</label>
+      <button type="submit" id="submit">Create account</button>
+      <button type="button" id="help">Help</button>
+    </form>
+  </main>
+  <footer>© Fixture Co</footer>
+</body></html>

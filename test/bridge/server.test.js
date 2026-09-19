@@ -62,6 +62,7 @@ test('hello, catalog CRUD and pushes', async () => {
     assert.equal((await ext.request({ type: MSG.DELETE_PATCH, patchId: 'p1' })).deleted, true);
     assert.equal((await ext.request({ type: MSG.DELETE_VIEW, viewId: 'v1' })).deleted, true);
     await until(() => ext.catalogs.length >= 5);
+    assert.equal((await ext.request({ type: MSG.PING })).pong, true);
     await assert.rejects(ext.request({ type: 'bogus' }), /unknown message type bogus/);
     await assert.rejects(ext.request({ type: MSG.SAVE_PATCH, patch: {} }), /needs id/);
     ext.raw('not json');

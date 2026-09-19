@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Peruser</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header>
+    <div class="site-row">
+      <span id="bridge-dot" class="dot" title="Bridge status"></span>
+      <span id="host" class="host">…</span>
+      <a id="options-link" class="link" href="../options/options.html" target="_blank" title="Options">⚙</a>
+    </div>
+    <div class="controls">
+      <label class="switch" title="Alt+Shift+P"><input id="enabled" type="checkbox" checked> <span>Patches on</span></label>
+      <select id="view" title="Active view"></select>
+      <button id="cycle" class="icon" title="Cycle views (Alt+Shift+V)">⟳</button>
+      <button id="new-view" class="icon" title="New view">＋</button>
+    </div>
+  </header>
+
+  <div id="notice" class="notice" hidden></div>
+  <div id="gate" class="gate" hidden>
+    <strong>This page changes itself constantly.</strong>
+    <p id="gate-reasons"></p>
+    <p>Patches may stop working or fight the page. You can still try, but keep changes small.</p>
+    <button id="ack" class="secondary">I understand, let me continue</button>
+  </div>
+
+  <main>
+    <section id="transcript" class="transcript" aria-live="polite"></section>
+    <section id="patches" class="patches"></section>
+  </main>
+
+  <footer class="compose">
+    <textarea id="prompt" rows="3" placeholder="Describe what you want changed on this page…"></textarea>
+    <div class="row">
+      <select id="harness" title="Which agent does the work"></select>
+      <select id="scope" title="Where the patch applies">
+        <option value="origin">whole site</option>
+        <option value="prefix">this section</option>
+        <option value="exact">this page only</option>
+      </select>
+      <button id="send" class="primary">Send</button>
+      <button id="cancel" class="secondary" hidden>Stop</button>
+    </div>
+    <div id="compose-hint" class="hint"></div>
+  </footer>
+
+  <dialog id="editor">
+    <form method="dialog">
+      <h3>Patch source</h3>
+      <p class="hint" id="editor-path"></p>
+      <label>patch.json<textarea id="editor-json" rows="12" spellcheck="false"></textarea></label>
+      <label>style.css<textarea id="editor-css" rows="8" spellcheck="false"></textarea></label>
+      <p id="editor-error" class="error"></p>
+      <div class="row">
+        <button value="cancel" class="secondary">Cancel</button>
+        <button id="editor-save" value="save" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

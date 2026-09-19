@@ -141,7 +141,7 @@ test('load tolerates hand-edited and broken files', async () => {
   }
 });
 
-test('watch reloads on external edits and ignores its own writes', async () => {
+test('watch reloads on external edits', async () => {
   const root = await tmpDir();
   try {
     const store = await new Store({ root }).init();
@@ -151,7 +151,6 @@ test('watch reloads on external edits and ignores its own writes', async () => {
     const changes = [];
     store.on('change', (c) => changes.push(c));
     const cssFile = path.join(store.pathOf('p1'), 'style.css');
-    await new Promise((r) => setTimeout(r, 350)); // let the self-write suspension lapse
     await fsp.writeFile(cssFile, 'p{color:red}');
     await until(() => store.catalog.patches.p1?.css === 'p{color:red}');
     assert.ok(changes.length >= 1);

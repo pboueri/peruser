@@ -93,6 +93,10 @@ export function styleOnlyMeasure(win) {
   };
 }
 
+function labelOf(el) {
+  return text(el, 40) || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('name') || '';
+}
+
 export function collectInteractive(doc, measure) {
   const out = [];
   for (const el of doc.querySelectorAll(INTERACTIVE_SELECTOR)) {
@@ -101,7 +105,7 @@ export function collectInteractive(doc, measure) {
       el,
       selector: cssPath(el, doc),
       tag: el.tagName.toLowerCase(),
-      text: text(el, 40) || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('name') || '',
+      text: labelOf(el),
       visible: measure.isVisible(el),
       disabled: el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true',
     });
@@ -130,6 +134,15 @@ export function captureBaseline(doc, measure) {
     scrollWidth: measure.scrollWidth(),
     viewportWidth: measure.viewportWidth(),
   };
+}
+
+function findReplacement(doc, item) {
+  try {
+    const candidates = Array.from(doc.querySelectorAll(item.selector));
+    return candidates.find((c) => c.tagName.toLowerCase() === item.tag && labelOf(c) === item.text) || null;
+  } catch {
+    return null;
+  }
 }
 
 function matchesAny(el, selectors) {
@@ -188,7 +201,11 @@ export function verify({ doc, win, baseline, patch, measure, matchCounts = null 
       const el = item.el;
       const label = `${item.tag}${item.text ? ` "${item.text}"` : ''} (${item.selector})`;
       if (!el.isConnected) {
-        if (!matchesAny(el, intentionally)) details.push(`${label} was removed from the page`);
+        // Frameworks re-render: if an equivalent element took its place and works, that is not a regression.
+        const replacement = findReplacement(doc, item);
+        if (replacement) {
+          if (!matchesAny(replacement, intentionally) && !measure.isVisible(replacement)) details.push(`${label} is no longer visible or clickable`);
+        } else if (!matchesAny(el, intentionally)) details.push(`${label} was removed from the page`);
         continue;
       }
       if (matchesAny(el, intentionally)) continue;

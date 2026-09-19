@@ -67,7 +67,6 @@ export class Store extends EventEmitter {
     this.problems = [];
     this.watcher = null;
     this.reloadTimer = null;
-    this.suspendWatch = 0;
   }
 
   async init() {
@@ -154,12 +153,7 @@ export class Store extends EventEmitter {
   }
 
   async writeJson(file, data) {
-    this.suspendWatch++;
-    try {
-      await fsp.writeFile(file, JSON.stringify(data, null, 2) + '\n');
-    } finally {
-      setTimeout(() => this.suspendWatch--, 300).unref?.();
-    }
+    await fsp.writeFile(file, JSON.stringify(data, null, 2) + '\n');
   }
 
   async saveView(view) {
@@ -218,12 +212,7 @@ export class Store extends EventEmitter {
     }
     const { css = '', ...rest } = patch;
     await this.writeJson(path.join(info.dir, 'patch.json'), { ...rest, updatedAt: Date.now() });
-    this.suspendWatch++;
-    try {
-      await fsp.writeFile(path.join(info.dir, 'style.css'), css);
-    } finally {
-      setTimeout(() => this.suspendWatch--, 300).unref?.();
-    }
+    await fsp.writeFile(path.join(info.dir, 'style.css'), css);
     await this.load();
     this.emit('change', this.catalog);
     return this.catalog.patches[patch.id];
@@ -248,7 +237,6 @@ export class Store extends EventEmitter {
   watch({ debounceMs = 250 } = {}) {
     if (this.watcher) return this;
     this.watcher = fs.watch(this.sitesDir, { recursive: true }, () => {
-      if (this.suspendWatch > 0) return;
       clearTimeout(this.reloadTimer);
       this.reloadTimer = setTimeout(async () => {
         try {

@@ -87,6 +87,8 @@ export class Bridge extends EventEmitter {
     switch (frame.type) {
       case MSG.HELLO:
         return this.onHello(client, frame, reply);
+      case MSG.PING:
+        return reply({ pong: true, at: Date.now() });
       case MSG.CATALOG:
         return reply({ catalog: this.store.catalog, problems: this.store.problems });
       case MSG.SAVE_PATCH:

@@ -8,6 +8,11 @@ import { MSG } from './protocol.js';
 
 const PREVIEW_ID = 'preview';
 
+/** What makes an applied patch stale: its content, not just its timestamp. */
+function signature(p) {
+  return JSON.stringify([p.updatedAt, p.css, p.rules, p.intentionallyHidden]);
+}
+
 export class PageRuntime {
   constructor({ doc, win, measure = null, now = Date.now } = {}) {
     this.doc = doc;
@@ -89,10 +94,14 @@ export class PageRuntime {
   setPatches(list) {
     this.desired = list;
     if (!this.enabled) return this.status();
+    // Saved patches sit underneath the preview: lift the preview, reconcile,
+    // then put it back so its undo never wipes out a saved patch's changes.
+    const preview = this.preview;
+    if (preview) preview.handle.undo();
     const wanted = new Map(list.map((p) => [p.id, p]));
     for (const [id, entry] of this.applied) {
       const p = wanted.get(id);
-      if (!p || p.updatedAt !== entry.updatedAt) {
+      if (!p || signature(p) !== entry.signature) {
         entry.handle.undo();
         this.applied.delete(id);
       }
@@ -100,8 +109,9 @@ export class PageRuntime {
     for (const p of list) {
       if (this.applied.has(p.id)) continue;
       const handle = applyPatch(this.doc, p, { id: p.id });
-      this.applied.set(p.id, { handle, updatedAt: p.updatedAt, name: p.name });
+      this.applied.set(p.id, { handle, signature: signature(p), name: p.name });
     }
+    if (preview) preview.handle = applyPatch(this.doc, preview.patch, { id: PREVIEW_ID });
     return this.status();
   }
 

@@ -4,8 +4,15 @@
   "version": "0.1.0",
   "description": "Describe how you want a page to look or behave; Peruser turns it into a remembered, reversible patch that keeps the page working.",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "sidePanel", "activeTab"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "activeTab",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "src/background/service-worker.js",
     "type": "module"
@@ -31,22 +38,43 @@
   "options_page": "src/options/options.html",
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*", "file:///*"],
-      "js": ["src/content/loader.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*",
+        "file:///*"
+      ],
+      "js": [
+        "src/content/loader.js"
+      ],
       "run_at": "document_start",
       "all_frames": false
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/content/runtime.js", "src/lib/*.js"],
-      "matches": ["http://*/*", "https://*/*", "file:///*"]
+      "resources": [
+        "src/content/runtime.js",
+        "src/lib/*.js"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*",
+        "file:///*"
+      ]
     }
   ],
   "commands": {
     "toggle-patches": {
-      "suggested_key": { "default": "Alt+Shift+P" },
+      "suggested_key": {
+        "default": "Alt+Shift+P"
+      },
       "description": "Toggle Peruser patches on the current tab"
+    },
+    "cycle-view": {
+      "suggested_key": {
+        "default": "Alt+Shift+V"
+      },
+      "description": "Cycle Peruser views on this site"
     }
   }
 }

@@ -70,6 +70,9 @@ test('saved patches reconcile, reapply, toggle', () => {
   assert.equal(doc.querySelector('.promo').style.display, '');
   assert.equal(doc.querySelector('.promo').textContent, 'x');
   assert.equal(doc.querySelector('style[data-peruser-patch="p2"]'), null);
+  // same timestamp but different css (edited on disk) is re-applied too
+  rt.setPatches([{ ...p1b, css: 'p{color:green}' }]);
+  assert.equal(doc.querySelector('style[data-peruser-patch="p1"]').textContent, 'p{color:green}');
   // new matching elements get patched on reapply, preview included
   rt.previewPatch({ name: 'pv', css: '', rules: [{ action: 'addClass', selector: 'p', className: 'seen' }] });
   const p = doc.createElement('p');
@@ -92,6 +95,19 @@ test('saved patches reconcile, reapply, toggle', () => {
   rt.previewPatch({ name: 'pv', css: 'b{}', rules: [] });
   rt.setEnabled(false);
   assert.equal(rt.status().preview, null);
+});
+
+test('saving while a preview is up keeps the saved change after the preview clears', () => {
+  const { rt, doc } = make();
+  rt.previewPatch({ name: 'pv', css: '', rules: [{ action: 'hide', selector: '.promo' }], intentionallyHidden: ['.promo'] });
+  assert.equal(doc.querySelector('.promo').style.display, 'none');
+  rt.setPatches([{ id: 'p1', name: 'saved', updatedAt: 1, css: '', rules: [{ action: 'hide', selector: '.promo' }] }]);
+  assert.equal(doc.querySelector('.promo').style.display, 'none');
+  assert.equal(rt.status().preview, 'pv');
+  rt.clearPreview();
+  assert.equal(doc.querySelector('.promo').style.display, 'none', 'saved patch survives clearing the preview');
+  rt.setPatches([]);
+  assert.equal(doc.querySelector('.promo').style.display, '');
 });
 
 test('message dispatch', () => {

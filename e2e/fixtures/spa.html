@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Live dashboard · Fixture</title></head>
+<body>
+<div id="__next"><div data-reactroot="" id="root"></div></div>
+<script>
+  // Re-renders the whole tree from state every 100ms with hashed class names,
+  // the way a busy framework app does.
+  const root = document.getElementById('root');
+  let tick = 0;
+  function render() {
+    tick++;
+    const h = Math.random().toString(16).slice(2, 8);
+    root.innerHTML = `
+      <nav class="css-${h}"><a href="/form.html">Sign up</a><a href="/about.html">About</a></nav>
+      <div class="css-${h}1 promo" id="promo">Live promo ${tick}</div>
+      <main class="css-${h}2"><h1>Dashboard</h1><p>Tick ${tick}</p><button id="refresh">Refresh</button></main>`;
+  }
+  render();
+  setInterval(render, 100);
+</script>
+</body></html>

@@ -63,6 +63,30 @@ test('removed elements, disabled elements and covered elements are reported', ()
   assert.match(check(r3, 'interactive').details.join(), /aria-disabled|became disabled/);
 });
 
+test('elements replaced by a re-render are matched up with their replacement', () => {
+  const { doc, win } = dom('<div id="root"><a href="/x" id="lnk">Go</a><button id="b">B</button></div>');
+  const measure = V.styleOnlyMeasure(win);
+  const baseline = V.captureBaseline(doc, measure);
+  // the page re-renders: same ids and text, new nodes
+  doc.getElementById('root').innerHTML = '<a href="/x" id="lnk">Go</a><button id="b" style="display:none">B</button>';
+  const report = V.verify({ doc, win, baseline, patch: { rules: [] }, measure });
+  const d = check(report, 'interactive').details;
+  assert.equal(d.length, 1);
+  assert.match(d[0], /button "B".*no longer visible/);
+  // replacement with different text does not count
+  doc.getElementById('root').innerHTML = '<a href="/x" id="lnk">Other</a><button id="b">B</button>';
+  const r2 = V.verify({ doc, win, baseline, patch: { rules: [] }, measure });
+  assert.match(check(r2, 'interactive').details[0], /a "Go".*was removed/);
+  // intentionally hidden replacement is fine; invalid baseline selectors are tolerated
+  doc.getElementById('root').innerHTML = '<a href="/x" id="lnk">Go</a><button id="b" style="display:none">B</button>';
+  const r3 = V.verify({ doc, win, baseline, patch: { rules: [], intentionallyHidden: ['#b'] }, measure });
+  assert.equal(check(r3, 'interactive').ok, true);
+  const weird = { ...baseline, interactive: baseline.interactive.map((i) => ({ ...i, selector: '<<' })) };
+  doc.getElementById('root').innerHTML = '';
+  const r4 = V.verify({ doc, win, baseline: weird, patch: { rules: [] }, measure });
+  assert.equal(check(r4, 'interactive').details.length, 2);
+});
+
 test('aria-disabled counts as disabled', () => {
   const { doc, win } = dom(PAGE);
   const measure = V.styleOnlyMeasure(win);
