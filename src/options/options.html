@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Peruser options</title>
+  <link rel="stylesheet" href="../sidepanel/sidepanel.css">
+  <style>
+    body { max-width: 640px; margin: 0 auto; padding: 24px; display: block; }
+    section { margin-bottom: 24px; }
+    label { display: block; margin: 10px 0 4px; }
+    input[type="text"], input[type="number"] { width: 100%; }
+    .row { display: flex; gap: 8px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h2>Peruser</h2>
+  <section>
+    <h3>Bridge</h3>
+    <p class="hint">The bridge is the local companion that stores your patches as files and runs the coding agent. Start it with <code>npx peruser-bridge</code>.</p>
+    <p id="status" class="hint"></p>
+    <label>Port <input id="port" type="number" min="1" max="65535"></label>
+    <div class="row"><button id="reconnect" class="secondary">Reconnect</button></div>
+  </section>
+  <section>
+    <h3>Agent</h3>
+    <label>Default harness
+      <select id="harness">
+        <option value="claude">Claude Code</option>
+        <option value="codex">Codex</option>
+        <option value="fake">Fake (demo)</option>
+      </select>
+    </label>
+    <label>Model override (optional, passed to the harness) <input id="model" type="text" placeholder="leave empty for the harness default"></label>
+  </section>
+  <section>
+    <h3>My preferences profile</h3>
+    <p class="hint">The agent reads this on every run, and "Tailor to my profile" in the panel applies it to the current page. Stored as <code>profile.md</code> in the bridge folder; edit it there if you like.</p>
+    <div id="presets"></div>
+    <label>In your own words <textarea id="notes" rows="4" placeholder="e.g. I use a screen magnifier at 200%; never yellow backgrounds; I read right-to-left languages."></textarea></label>
+    <div class="row"><button id="save-profile" class="primary">Save profile</button><span id="profile-status" class="hint"></span></div>
+  </section>
+  <section>
+    <h3>JavaScript patches</h3>
+    <label class="switch"><input id="allow-js" type="checkbox"> Allow the agent to write JavaScript</label>
+    <p class="hint">Off by default. JavaScript can do anything the page can. Peruser refuses scripts that read cookies or storage or send data elsewhere, shows you the code before saving, stores it as <code>script.js</code>, and rates such patches at least medium risk. Turning a patch off runs its cleanup; a reload undoes it completely.</p>
+    <p id="js-status" class="hint"></p>
+  </section>
+  <section>
+    <h3>Patches</h3>
+    <label class="switch"><input id="global" type="checkbox"> Apply patches everywhere (master switch)</label>
+    <div class="row">
+      <button id="export" class="secondary">Export JSON</button>
+      <button id="import" class="secondary">Import JSON</button>
+      <input id="file" type="file" accept="application/json" hidden>
+      <button id="clear-acks" class="secondary">Forget "I understand" answers</button>
+    </div>
+  </section>
+  <p id="saved" class="hint"></p>
+  <script type="module" src="options.js"></script>
+</body>
+</html>
